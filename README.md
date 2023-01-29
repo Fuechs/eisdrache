@@ -12,12 +12,26 @@ Dynamic Array & String type in LLVM IR.
 #define LLVM_ARRAY_IMPL
 #include "llvm_array.hpp"
 
+using namespace llvmarr;
+
 int main(void) {
-    llvmarr::LLVMContext *context = new llvmarr::LLVMContext();
-    llvmarr::Module *module = new llvmarr::Module("tutorial", *context);
-    llvmarr::IRBuilder<> *builder = new llvmarr::IRBuilder<>(*context);
-    llvmarr::Type *type = builder->getInt64Ty();
-    llvmarr::Array *arrayType = new llvmarr::Array(context, module, builder, type);
+    LLVMContext *context = new LLVMContext();
+    Module *module = new Module("tutorial", *context);
+    IRBuilder<> *builder = new IRBuilder<>(*context);
+
+    Array *array = new Array(context, module, builder, builder->getInt64Ty(), "int_array");
+
+    FunctionType *FT = FunctionType::get(builder->getInt64Ty(), false);
+    Function *main = Function::Create(FT, Function::ExternalLinkage, "main", *module);
+    BasicBlock *BB = BasicBlock::Create(*context, "entry", main);
+    builder->SetInsertPoint(BB);
+    Value *vector = array->allocate("vector");
+    array->initialize(vector);
+    builder->CreateRet(builder->getInt64(0));
+    llvm::verifyFunction(*main);
+
+    module->print(llvm::errs(), nullptr);
+
     return 0;
 }
 ```

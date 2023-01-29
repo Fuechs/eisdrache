@@ -28,9 +28,8 @@ public:
 
 #ifdef LLVM_STRING_IMPL
 
-String::String(LLVMContext *context, Module *module, IRBuilder<> *builder) {
+String::String(LLVMContext *context, Module *module, IRBuilder<> *builder) {}
 
-}
 String::~String() {}
 
 #endif // LLVM_STRING_IMPL
