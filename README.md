@@ -21,7 +21,7 @@ int main(void) {
     Type *type = builder->getInt64Ty();
 
     Memory *mem = new Memory(context, module, builder, type);
-    Array *array = new Array(context, module, mem, "test_array");
+    Array *array = new Array(mem, "int_array");
 
     FunctionType *FT = FunctionType::get(builder->getInt64Ty(), false);
     Function *main = Function::Create(FT, Function::ExternalLinkage, "main", *module);
@@ -29,6 +29,7 @@ int main(void) {
     builder->SetInsertPoint(BB);
     Value *vector = array->allocate("vector");
     array->initialize(vector);
+    array->duplicate(vector, "vector_2");
     array->del(vector);
     builder->CreateRet(builder->getInt64(0));
     llvm::verifyFunction(*main);
