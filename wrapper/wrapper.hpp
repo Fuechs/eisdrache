@@ -41,6 +41,9 @@ public:
     Module *getModule();
     IRBuilder<> *getBuilder();
 
+    IntegerType *getIntTy(size_t);
+    PointerType *getIntPtrTy(size_t);
+
 private:
     Wrapper(LLVMContext *, Module *, IRBuilder<> *);
 

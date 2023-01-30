@@ -38,8 +38,7 @@ Wrapper *Wrapper::create(Module *module, IRBuilder<> *builder) {
 /// UTILITY ///
 
 Function *Wrapper::createMain() {
-                                        // TODO: add types to Wrapper
-    FunctionType *FT = FunctionType::get(builder->getInt64Ty(), {builder->getInt64Ty(), builder->getInt8PtrTy()->getPointerTo()}, false);
+    FunctionType *FT = FunctionType::get(getIntTy(64), {getIntTy(64), getIntPtrTy(8)}, false);
     main = Function::Create(FT, Function::ExternalLinkage, "main", *module);
     verifyFunction(*main, &errs());
     return main;
@@ -54,5 +53,8 @@ void Wrapper::dump(raw_fd_ostream &os) { module->print(os, nullptr); }
 LLVMContext *Wrapper::getContext() { return context; }
 Module *Wrapper::getModule() { return module; }
 IRBuilder<> *Wrapper::getBuilder() { return builder; }
+
+IntegerType *Wrapper::getIntTy(size_t bit) { return Type::getIntNTy(*context, bit); }
+PointerType *Wrapper::getIntPtrTy(size_t bit) { return Type::getIntNPtrTy(*context, bit); }
 
 }
