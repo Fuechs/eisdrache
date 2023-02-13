@@ -1,7 +1,7 @@
 /**
  * @file eisdrache.hpp
  * @author fuechs
- * @brief Eisdrache Wrapper class header
+ * @brief Eisdrache class header
  * @version 0.1
  * @date 2023-01-30
  * 
@@ -23,14 +23,14 @@
 
 namespace llvm {
 
-class Wrapper {
+class Eisdrache {
 public:
-    ~Wrapper();
+    ~Eisdrache();
 
-    static Wrapper *create(std::string);
-    static Wrapper *create(LLVMContext *, std::string);
-    static Wrapper *create(Module *);
-    static Wrapper *create(Module *, IRBuilder<> *);
+    static Eisdrache *create(std::string);
+    static Eisdrache *create(LLVMContext *, std::string);
+    static Eisdrache *create(Module *);
+    static Eisdrache *create(Module *, IRBuilder<> *);
 
     // create the main function and return pointer to it
     Function *createMain();
@@ -46,6 +46,8 @@ public:
     IntegerType *getIntTy(size_t);
     PointerType *getIntPtrTy(size_t);
     PointerType *getIntPtrPtrTy(size_t);
+    ConstantInt *getInt(IntegerType *, size_t);
+    ConstantInt *getInt(size_t, size_t);
 
     // builder functions
     Value *allocate(Type *, std::string = "");
@@ -62,7 +64,7 @@ public:
     void createMemoryFunctions(Type *);
 
 private:
-    Wrapper(LLVMContext *, Module *, IRBuilder<> *);
+    Eisdrache(LLVMContext *, Module *, IRBuilder<> *);
 
     LLVMContext *context;
     Module *module;
