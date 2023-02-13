@@ -1,7 +1,7 @@
 /**
- * @file wrapper.hpp
+ * @file eisdrache.hpp
  * @author fuechs
- * @brief LLVM Wrapper Wrapper class
+ * @brief Eisdrache Wrapper class header
  * @version 0.1
  * @date 2023-01-30
  * 

@@ -1,9 +1,12 @@
-# LLVM C++ Wrapper Wrapper
+# Eisdrache
 
 > __Warning__ \
 > This project is unfinished. Use at your own risk.
 
-Custom wrapper for the LLVM C++ wrapper. Including dynamic arrays & strings.
+### Custom wrapper for the LLVM API in C++
+
+- Simplified `IRBuilder`
+- Implementation for dynamic arrays
 
 ###### How to use
 

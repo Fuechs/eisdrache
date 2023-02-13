@@ -1,7 +1,7 @@
 /**
- * @file wrapper.cpp
+ * @file eisdrache.cpp
  * @author fuechs
- * @brief LLVM Wrapper Wrapper class implementation
+ * @brief Eisdrache Wrapper class implementation
  * @version 0.1
  * @date 2023-01-30
  * 
@@ -9,7 +9,7 @@
  * 
  */
 
-#include "wrapper.hpp"
+#include "eisdrache.hpp"
 
 namespace llvm {
 
