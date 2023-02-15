@@ -12,9 +12,21 @@
 
 ```cpp
 // main.cpp
-int main(void) { /* SOON. */ }
+#include "eisdrache.hpp"
+
+int main(void) {
+    llvm::Eisdrache *eisdrache = new llvm::Eisdrache();
+    // i64 @main (i64, i8*)
+    llvm::Function *main = eisdrache->createMain();
+    llvm::BasicBlock *entry = llvm::BasicBlock::Create(*eisdrache->getContext(), "entry", main);
+    eisdrache->getBuilder()->SetInsertPoint(entry);
+    eisdrache->getBuilder()->CreateRet(eisdrache->getInt(64, 0));
+    llvm::verifyFunction(*main);
+    eisdrache->dump();
+    return 0;
+}
 ```
 
 ```zsh
-clang++ main.cpp `llvm-config --cxxflags --ldflags --system-libs --libs core` -std=c++20 -stdlib=libc++ 
+clang++ main.cpp eisdrache.cpp `llvm-config --cxxflags --ldflags --system-libs --libs core` -std=c++20 -stdlib=libc++ 
 ```
