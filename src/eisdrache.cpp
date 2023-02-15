@@ -35,15 +35,6 @@ Eisdrache *Eisdrache::create(Module *module, IRBuilder<> *builder) {
     return new Eisdrache(&module->getContext(), module, builder);
 };
 
-/// UTILITY ///
-
-Function *Eisdrache::createMain() {
-    FunctionType *FT = FunctionType::get(getIntTy(64), {getIntTy(64), getIntPtrTy(8)}, false);
-    main = Function::Create(FT, Function::ExternalLinkage, "main", *module);
-    verifyFunction(*main, &errs());
-    return main;
-}
-
 /// DEBUG ///
 
 void Eisdrache::dump(raw_fd_ostream &os) { module->print(os, nullptr); }
@@ -65,10 +56,14 @@ ConstantInt *Eisdrache::getInt(size_t bit, size_t value) { return ConstantInt::g
 /// BUILDER ///
 Value *Eisdrache::allocate(Type *type, std::string name) { return builder->CreateAlloca(type, nullptr, name); }
 Value *Eisdrache::call(Function *function, std::vector<Value *> args, std::string name) { return builder->CreateCall(function, args, name); };
-Function *Eisdrache::declare(Type *type, std::vector<Type *> parameters, std::string name) {
+Function *Eisdrache::declare(Type *type, std::vector<Type *> parameters, std::string name, bool entry) {
     FunctionType *FT = FunctionType::get(type, parameters, false);
     Function *F = Function::Create(FT, Function::ExternalLinkage, name, *module);
-    llvm::verifyFunction(*F);
+    if (entry) {
+        BasicBlock *BB = BasicBlock::Create(*context, "entry", F);
+        builder->SetInsertPoint(BB);
+    } else
+        llvm::verifyFunction(*F);
     return F;
 }
 

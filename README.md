@@ -15,11 +15,10 @@
 #include "eisdrache.hpp"
 
 int main(void) {
-    llvm::Eisdrache *eisdrache = new llvm::Eisdrache();
+    llvm::Eisdrache *eisdrache = llvm::Eisdrache::create("example");
     // i64 @main (i64, i8*)
-    llvm::Function *main = eisdrache->createMain();
-    llvm::BasicBlock *entry = llvm::BasicBlock::Create(*eisdrache->getContext(), "entry", main);
-    eisdrache->getBuilder()->SetInsertPoint(entry);
+    llvm::Function *main = eisdrache->declare(eisdrache->getIntTy(64), 
+        {eisdrache->getIntTy(64), eisdrache->getIntPtrTy(8)}, "main", true);
     eisdrache->getBuilder()->CreateRet(eisdrache->getInt(64, 0));
     llvm::verifyFunction(*main);
     eisdrache->dump();

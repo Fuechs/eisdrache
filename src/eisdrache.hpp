@@ -27,13 +27,10 @@ class Eisdrache {
 public:
     ~Eisdrache();
 
-    static Eisdrache *create(std::string);
-    static Eisdrache *create(LLVMContext *, std::string);
-    static Eisdrache *create(Module *);
-    static Eisdrache *create(Module *, IRBuilder<> *);
-
-    // create the main function and return pointer to it
-    Function *createMain();
+    static Eisdrache *create(std::string moduleID);
+    static Eisdrache *create(LLVMContext *context, std::string moduleID);
+    static Eisdrache *create(Module *module);
+    static Eisdrache *create(Module *module, IRBuilder<> *builder);
 
     // dumb the Module
     void dump(raw_fd_ostream & = errs());
@@ -43,25 +40,26 @@ public:
     Module *getModule();
     IRBuilder<> *getBuilder();
     IntegerType *getSizeTy();
-    IntegerType *getIntTy(size_t);
-    PointerType *getIntPtrTy(size_t);
-    PointerType *getIntPtrPtrTy(size_t);
-    ConstantInt *getInt(IntegerType *, size_t);
-    ConstantInt *getInt(size_t, size_t);
+    IntegerType *getIntTy(size_t bit);
+    PointerType *getIntPtrTy(size_t bit);
+    PointerType *getIntPtrPtrTy(size_t bit);
+    ConstantInt *getInt(IntegerType *type, size_t value);
+    ConstantInt *getInt(size_t bit, size_t value);
 
     // builder functions
-    Value *allocate(Type *, std::string = "");
-    Value *call(Function *, std::vector<Value *> = {}, std::string = "");
-    Function *declare(Type *, std::vector<Type *> = {}, std::string = "");
+    Value *allocate(Type *type, std::string name = "");
+    Value *call(Function *callee, std::vector<Value *> args = {}, std::string name = "");
+    // `entry`: set insert point at this function
+    Function *declare(Type *type, std::vector<Type *> args = {}, std::string = "", bool entry = false);
 
     // call TYPE *malloc (SIZE_T size)
-    Value *malloc(Type *, Value *, std::string = "");
+    Value *malloc(Type *type, Value *size, std::string name = "");
     // call void free (TYPE *value)
-    void free(Type *, Value *);
+    void free(Type *type, Value *value);
     // call TYPE *memcpy (TYPE *dest, TYPE *source, SIZE_T size)
-    Value *memcpy(Type *, Value *, Value *, Value *, std::string = "");
+    Value *memcpy(Type *type, Value *dest, Value *source, Value *size, std::string name = "");
 
-    void createMemoryFunctions(Type *);
+    void createMemoryFunctions(Type *type);
 
 private:
     Eisdrache(LLVMContext *, Module *, IRBuilder<> *);
@@ -70,7 +68,6 @@ private:
     Module *module;
     IRBuilder<> *builder;
 
-    Function *main = nullptr;
     std::map<Type *, std::map<std::string, Function *>> memoryFunctions = std::map<Type *, std::map<std::string, Function *>>();
 };
 
