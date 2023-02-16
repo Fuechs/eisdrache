@@ -51,6 +51,9 @@ public:
     Value *call(Function *callee, std::vector<Value *> args = {}, std::string name = "");
     // `entry`: set insert point at this function
     Function *declare(Type *type, std::vector<Type *> args = {}, std::string = "", bool entry = false);
+    // create return instruction and end function declaration 
+    // or start insertion at `next`
+    ReturnInst *createRet(Value *value, BasicBlock *next = nullptr);
 
     // call TYPE *malloc (SIZE_T size)
     Value *malloc(Type *type, Value *size, std::string name = "");

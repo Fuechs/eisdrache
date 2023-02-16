@@ -19,7 +19,7 @@ int main(void) {
     // i64 @main (i64, i8*)
     llvm::Function *main = eisdrache->declare(eisdrache->getIntTy(64), 
         {eisdrache->getIntTy(64), eisdrache->getIntPtrTy(8)}, "main", true);
-    eisdrache->getBuilder()->CreateRet(eisdrache->getInt(64, 0));
+    eisdrache->createRet(eisdrache->getInt(64, 0));
     llvm::verifyFunction(*main);
     eisdrache->dump();
     return 0;

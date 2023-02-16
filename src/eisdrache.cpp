@@ -55,7 +55,9 @@ ConstantInt *Eisdrache::getInt(size_t bit, size_t value) { return ConstantInt::g
 
 /// BUILDER ///
 Value *Eisdrache::allocate(Type *type, std::string name) { return builder->CreateAlloca(type, nullptr, name); }
+
 Value *Eisdrache::call(Function *function, std::vector<Value *> args, std::string name) { return builder->CreateCall(function, args, name); };
+
 Function *Eisdrache::declare(Type *type, std::vector<Type *> parameters, std::string name, bool entry) {
     FunctionType *FT = FunctionType::get(type, parameters, false);
     Function *F = Function::Create(FT, Function::ExternalLinkage, name, *module);
@@ -65,6 +67,13 @@ Function *Eisdrache::declare(Type *type, std::vector<Type *> parameters, std::st
     } else
         llvm::verifyFunction(*F);
     return F;
+}
+
+ReturnInst *Eisdrache::createRet(Value *value, BasicBlock *next) {
+    ReturnInst *inst = builder->CreateRet(value);
+    if (next)
+        builder->SetInsertPoint(next);
+    return inst;
 }
 
 Value *Eisdrache::malloc(Type *type, Value *size, std::string name) { return call(memoryFunctions[type]["malloc"], {size}, name); }
