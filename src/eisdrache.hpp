@@ -23,6 +23,26 @@
 
 namespace llvm {
 
+struct WrappedVal {
+    enum Kind {
+        PARAMETER,  // function parameters
+        COMPLEX,    // class / struct object
+        GLOBAL,     // global variable
+        LOCAL,      // local variable 
+        LITERAL,    // (global) string literal
+        NONE
+    };
+
+    typedef std::unordered_map<std::string, WrappedVal> Map;
+
+    WrappedVal(Kind = NONE, Type *type = nullptr, Value *value = nullptr);
+    WrappedVal &operator=(const WrappedVal &copy);
+    
+    Kind kind;
+    Type *type;
+    Value *value;
+};
+
 class Eisdrache {
 public:
     ~Eisdrache();
@@ -33,12 +53,13 @@ public:
     static Eisdrache *create(Module *module, IRBuilder<> *builder);
 
     // dumb the Module
-    void dump(raw_fd_ostream & = errs());
+    void dump(raw_fd_ostream &outs = errs());
 
     // getter functions
     LLVMContext *getContext();
     Module *getModule();
     IRBuilder<> *getBuilder();
+    Type *getVoidTy();
     IntegerType *getSizeTy();
     IntegerType *getIntTy(size_t bit);
     PointerType *getIntPtrTy(size_t bit);
@@ -55,6 +76,11 @@ public:
     // or start insertion at `next`
     ReturnInst *createRet(Value *value, BasicBlock *next = nullptr);
 
+    // get WrappedVal of pointer 
+    WrappedVal &getWrap(Value *pointer);
+    // load value if pointer is WrappedVal::LOCAL
+    Value *loadValue(Value *pointer);
+
     // call TYPE *malloc (SIZE_T size)
     Value *malloc(Type *type, Value *size, std::string name = "");
     // call void free (TYPE *value)
@@ -65,13 +91,16 @@ public:
     void createMemoryFunctions(Type *type);
 
 private:
+    typedef std::map<Type *, std::map<std::string, Function *>> MemoryFuncMap;
+
     Eisdrache(LLVMContext *, Module *, IRBuilder<> *);
 
     LLVMContext *context;
     Module *module;
     IRBuilder<> *builder;
 
-    std::map<Type *, std::map<std::string, Function *>> memoryFunctions = std::map<Type *, std::map<std::string, Function *>>();
+    MemoryFuncMap memoryFunctions = MemoryFuncMap();
+    WrappedVal::Map values;
 };
 
 }
