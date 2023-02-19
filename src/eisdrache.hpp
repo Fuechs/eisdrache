@@ -88,6 +88,7 @@ public:
     ConstantInt *getInt(IntegerType *type, size_t value);
     ConstantInt *getInt(size_t bit, size_t value);
     ConstantFP *getFloat(double value);
+    ConstantPointerNull *getNullPtr(PointerType *type);
 
     /// builder functions ///
 
@@ -111,6 +112,15 @@ public:
     void store(Value *value, Value *structPtr, size_t index);
     // store value at pointer
     void store(Value *value, Value *ptr);
+    // jump to block
+    BranchInst *jump(BasicBlock *block);
+    // condition jump to block
+    BranchInst *condJump(Value *condition, BasicBlock *then, BasicBlock *Else);
+    // set current insert point 
+    void setBlock(BasicBlock *block);
+    // create new block with current parent 
+    // `insert`: start insertion)
+    BasicBlock *block(bool insert = false, std::string name = "");
 
     // get WrappedVal of pointer 
     WrappedVal &getWrap(Value *pointer);

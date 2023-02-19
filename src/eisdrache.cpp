@@ -94,8 +94,10 @@ ConstantInt *Eisdrache::getBool(bool value) { return builder->getInt1(value); }
 ConstantInt *Eisdrache::getInt(IntegerType *type, size_t value) { return ConstantInt::get(type, value); }
 ConstantInt *Eisdrache::getInt(size_t bit, size_t value) { return ConstantInt::get(getIntTy(bit), value); }
 ConstantFP *Eisdrache::getFloat(double value) { return ConstantFP::get(*context, APFloat(value)); }
+ConstantPointerNull *Eisdrache::getNullPtr(PointerType *type) { return ConstantPointerNull::get(type); }
 
 /// BUILDER ///
+
 Value *Eisdrache::allocate(Type *type, std::string name) { 
     Value *allocated = builder->CreateAlloca(type, nullptr, name);
     values[allocated->getName().str()] = WrappedVal(WrappedVal::LOCAL, type, allocated);
@@ -121,7 +123,8 @@ ReturnInst *Eisdrache::createRet(BasicBlock *next) {
     ReturnInst *inst = builder->CreateRetVoid();
 
     for (WrappedVal::Map::value_type &x : values) 
-        if (x.second.parent && x.second.parent == inst->getParent())
+        if (x.second.parent 
+        && x.second.parent->getParent() == inst->getParent()->getParent())
             values.erase(x.first);
     
     if (next)
@@ -134,7 +137,8 @@ ReturnInst *Eisdrache::createRet(Value *value, BasicBlock *next) {
     ReturnInst *inst = builder->CreateRet(value);
     
     for (WrappedVal::Map::value_type &x : values) 
-        if (x.second.parent && x.second.parent == inst->getParent())
+        if (x.second.parent 
+        && x.second.parent->getParent() == inst->getParent()->getParent())
             values.erase(x.first);
     
     if (next)
@@ -171,6 +175,17 @@ void Eisdrache::store(Value *value, Value *structPtr, size_t index) {
 
 void Eisdrache::store(Value *value, Value *ptr) { builder->CreateStore(value, ptr); }
 
+BranchInst *Eisdrache::jump(BasicBlock *block) { return builder->CreateBr(block); }
+
+BranchInst *Eisdrache::condJump(Value *condition, BasicBlock *then, BasicBlock *Else) { return builder->CreateCondBr(condition, then, Else); }
+
+BasicBlock *Eisdrache::block(bool insert, std::string name) {
+    BasicBlock *BB = BasicBlock::Create(*context, name, builder->GetInsertBlock()->getParent());
+    if (insert)
+        builder->SetInsertPoint(BB);
+    return BB;
+}
+
 WrappedVal &Eisdrache::getWrap(Value *pointer) {
     for (WrappedVal::Map::value_type &x : values) 
         if (x.second.value == pointer)
@@ -196,12 +211,22 @@ Value *Eisdrache::loadValue(Value *pointer, std::string name, bool force) {
     return pointer;
 }
 
-Value *Eisdrache::malloc(Type *type, Value *size, std::string name) { return call(memoryFunctions.at(type)["malloc"], {size}, name); }
-void Eisdrache::free(Type *type, Value *value) { call(memoryFunctions.at(type)["free"], {value}); }
-Value *Eisdrache::memcpy(Type *type, Value *dest, Value *source, Value *size, std::string name) { return call(memoryFunctions.at(type)["memcpy"], {dest, source, size}, name); }
+Value *Eisdrache::malloc(Type *type, Value *size, std::string name) { 
+    return call(memoryFunctions.at(type->getPointerTo())["malloc"], {size}, name); 
+}
+
+void Eisdrache::free(Type *type, Value *value) { 
+    call(memoryFunctions.at(type->getPointerTo())["free"], {value}); 
+}
+
+Value *Eisdrache::memcpy(Type *type, Value *dest, Value *source, Value *size, std::string name) { 
+    return call(memoryFunctions.at(type->getPointerTo())["memcpy"], {dest, source, size}, name); 
+}
 
 void Eisdrache::createMemoryFunctions(Type *type) {
     PointerType *ptrType = type->getPointerTo();
+    if (memoryFunctions.contains(ptrType))
+        return;
     memoryFunctions[type]["malloc"] = declare(ptrType, {getSizeTy()}, "malloc");
     memoryFunctions[type]["free"] = declare(getVoidTy(), {ptrType}, "free");
     memoryFunctions[type]["memcpy"] = declare(ptrType, {ptrType, ptrType, getSizeTy()}, "memcpy");
