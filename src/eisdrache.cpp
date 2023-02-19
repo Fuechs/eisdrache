@@ -22,6 +22,21 @@ WrappedVal &WrappedVal::operator=(const WrappedVal &copy) {
     return *this;
 }
 
+WrappedType::WrappedType(StructType *structType, std::vector<Type *> elementTypes) 
+: type(structType), elementTypes(elementTypes) {}
+
+WrappedType &WrappedType::operator=(const WrappedType &copy) {
+    type = copy.type;
+    elementTypes = copy.elementTypes;
+    return *this;
+}
+
+Type *WrappedType::operator[](signed long long index) {
+    if (index < 0) 
+        return type;
+    return elementTypes[index];
+}
+
 /// CREATE ///
 
 Eisdrache::Eisdrache(LLVMContext *context, Module *module, IRBuilder<> *builder)
@@ -88,12 +103,47 @@ Function *Eisdrache::declare(Type *type, std::vector<Type *> parameters, std::st
     return F;
 }
 
+ReturnInst *Eisdrache::createRet(BasicBlock *next) {
+    ReturnInst *inst = builder->CreateRetVoid();
+    if (next)
+        builder->SetInsertPoint(next);
+    return inst;
+} 
+
 ReturnInst *Eisdrache::createRet(Value *value, BasicBlock *next) {
     ReturnInst *inst = builder->CreateRet(value);
     if (next)
         builder->SetInsertPoint(next);
     return inst;
 }
+
+StructType *Eisdrache::createType(std::vector<Type *> elements, std::string name) { 
+    StructType *that = StructType::create(*context, elements, name);
+    types[that->getName().str()] = WrappedType(that, elements);
+    return that;
+}
+
+Value *Eisdrache::getElementPtr(Value *ptr, size_t index, std::string name) {
+    Type *structType = getWrap(ptr).type; 
+    WrappedType &wrap = getWrap(structType);
+    Value *elementPtr = builder->CreateGEP(structType, ptr, {getInt(64, 0), getInt(32, index)}, name);
+    values[elementPtr->getName().str()] = WrappedVal(WrappedVal::LOADED, wrap[index], elementPtr);
+    return elementPtr;
+} 
+
+Value *Eisdrache::getElementVal(Value *ptr, size_t index, std::string name) {
+    Value *elementPtr = getElementPtr(ptr, index, name+"_ptr_");
+    Value *elementVal = loadValue(elementPtr, name, true);
+    values[elementVal->getName().str()] = WrappedVal(WrappedVal::LOADED, elementVal->getType(), elementVal);
+    return elementVal;
+}
+
+void Eisdrache::store(Value *value, Value *structPtr, size_t index) {
+    Value *elementPtr = getElementPtr(structPtr, index, "unnamed_gep_");
+    store(value, elementPtr);
+}
+
+void Eisdrache::store(Value *value, Value *ptr) { builder->CreateStore(value, ptr); }
 
 WrappedVal &Eisdrache::getWrap(Value *pointer) {
     for (WrappedVal::Map::value_type &x : values) 
@@ -102,10 +152,21 @@ WrappedVal &Eisdrache::getWrap(Value *pointer) {
     assert(false && "value not found in WrappedVal::Map Eisdrache::values");
 }
 
-Value *Eisdrache::loadValue(Value *pointer) {
+WrappedType &Eisdrache::getWrap(Type *type) {
+    if (!type->isStructTy())
+        assert (false && "type is not a StructType *");
+
+    for (WrappedType::Map::value_type &x : types) 
+        if ((Type *) x.second.type == type)
+            return x.second;
+    
+    assert(false && "struct type not found in WrappedType::Map Eisdrache::types");
+}
+
+Value *Eisdrache::loadValue(Value *pointer, std::string name, bool force) {
     WrappedVal &that = getWrap(pointer);
-    if (that.kind == WrappedVal::LOCAL)
-        return builder->CreateLoad(that.type, pointer, pointer->getName()+"_load_");
+    if (force || that.kind == WrappedVal::LOCAL)
+        return builder->CreateLoad(that.type, pointer, name.empty() ? pointer->getName()+"_load_" : name);
     return pointer;
 }
 

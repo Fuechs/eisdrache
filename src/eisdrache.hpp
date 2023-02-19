@@ -25,8 +25,9 @@ namespace llvm {
 
 struct WrappedVal {
     enum Kind {
-        PARAMETER,  // function parameters
+        PARAMETER,  // function parameter
         COMPLEX,    // class / struct object
+        LOADED,     // (already) loaded values
         GLOBAL,     // global variable
         LOCAL,      // local variable 
         LITERAL,    // (global) string literal
@@ -41,6 +42,19 @@ struct WrappedVal {
     Kind kind;
     Type *type;
     Value *value;
+};
+
+struct WrappedType {
+    typedef std::unordered_map<std::string, WrappedType> Map;
+
+    WrappedType(StructType *type = nullptr, std::vector<Type *> elementTypes = {});
+    WrappedType &operator=(const WrappedType &copy);
+    // index < 0 returns StructType *
+    Type *operator[](signed long long index);
+
+
+    StructType *type;
+    std::vector<Type *> elementTypes;
 };
 
 class Eisdrache {
@@ -71,15 +85,30 @@ public:
     Value *allocate(Type *type, std::string name = "");
     Value *call(Function *callee, std::vector<Value *> args = {}, std::string name = "");
     // `entry`: set insert point at this function
-    Function *declare(Type *type, std::vector<Type *> args = {}, std::string = "", bool entry = false);
+    Function *declare(Type *type, std::vector<Type *> args = {}, std::string name = "", bool entry = false);
+    // create void return and end function declaration
+    // or start insertion at `next`
+    ReturnInst *createRet(BasicBlock *next = nullptr);
     // create return instruction and end function declaration 
     // or start insertion at `next`
     ReturnInst *createRet(Value *value, BasicBlock *next = nullptr);
+    // create a struct type
+    StructType *createType(std::vector<Type *> elements, std::string name = "");
+    // get pointer to element of a struct
+    Value *getElementPtr(Value *ptr, size_t index, std::string name = "");
+    // get value of element of a struct
+    Value *getElementVal(Value *ptr, size_t index, std::string name = "");
+    // store value at element of structPtr 
+    void store(Value *value, Value *structPtr, size_t index);
+    // store value at pointer
+    void store(Value *value, Value *ptr);
 
     // get WrappedVal of pointer 
     WrappedVal &getWrap(Value *pointer);
+    // get WrappedType of struct type
+    WrappedType &getWrap(Type *type);
     // load value if pointer is WrappedVal::LOCAL
-    Value *loadValue(Value *pointer);
+    Value *loadValue(Value *pointer, std::string name = "", bool force = false);
 
     // call TYPE *malloc (SIZE_T size)
     Value *malloc(Type *type, Value *size, std::string name = "");
@@ -101,6 +130,7 @@ private:
 
     MemoryFuncMap memoryFunctions = MemoryFuncMap();
     WrappedVal::Map values;
+    WrappedType::Map types;
 };
 
 }

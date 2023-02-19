@@ -15,64 +15,18 @@
 #include <string>
 #include <vector>
 
-#include <llvm/IR/LLVMContext.h>
-#include <llvm/IR/Module.h>
-#include <llvm/IR/IRBuilder.h>
-#include <llvm/IR/Type.h>
-#include <llvm/IR/Function.h>
-#include <llvm/IR/BasicBlock.h>
-#include <llvm/IR/Verifier.h>
-#include <llvm/IR/DerivedTypes.h>
-#include <llvm/IR/BasicBlock.h>
-#include <llvm/IR/Value.h>
+#include "../src/eisdrache.hpp"
 
-namespace llvmarr {
+namespace llvm {
 
-using std::cout, std::cerr, std::endl, 
-    std::string, std::to_string, std::vector;
-
-using llvm::LLVMContext, llvm::Module, llvm::IRBuilder, llvm::Type, llvm::StructType,
-    llvm::Function, llvm::FunctionType, llvm::BasicBlock, llvm::Value, llvm::ConstantPointerNull,
-    llvm::PointerType;
-
-class Memory {
+class EisdracheArray {
 public:
-    Memory(LLVMContext *context, Module *module, IRBuilder<> *builder, Type *type);
-    ~Memory();
-
-    // call TYPE* malloc(i64)
-    Value *malloc(Value *size, string name = "");
-    // call void free(TYPE*)
-    void free(Value *pointer);
-    // call TYPE* memcpy(TYPE*, TYPE*, i64)
-    Value *memcpy(Value *dest, Value *source, Value *size);
-
-    LLVMContext *getContext();
-    Module *getModule();
-    IRBuilder<> *getBuilder();
-    Type *getType();
-
-private:
-    Function *_malloc = nullptr;
-    Function *_free = nullptr;
-    Function *_memcpy = nullptr;
-
-    Type *type = nullptr;
-    Type *ptr = nullptr;
-
-    LLVMContext *context;
-    Module *module;
-    IRBuilder<> *builder = nullptr;
-};
-
-class Array {
-public:
-    Array(Memory *mem, string name);
-    ~Array();
+    EisdracheArray(Eisdrache *eisdrache, Type *elementType, std::string typeName);
+    ~EisdracheArray();
 
     // allocate memory for this type
     // name: name for returned pointer
-    Value *allocate(string name = "");
+    Value *allocate(std::string name = "");
     // initialize object of this type
     // array: pointer to object
     void initialize(Value *array);
@@ -82,7 +36,7 @@ public:
     // get buffer of object of this type
     // array: pointer to object
     // name: name for returned pointer
-    Value *getBuffer(Value *array, string name = "");
+    Value *getBuffer(Value *array, std::string name = "");
     // set buffer of object of this type
     // array: pointer to object
     // value: value to assign
@@ -91,7 +45,7 @@ public:
     // get buffer length/size of object of this type
     // array: pointer to object
     // name: name for returned value
-    Value *getLength(Value *array, string name = "");
+    Value *getLength(Value *array, std::string name = "");
     // set buffer length/size of object of this type
     // array: pointer to object
     // value: value to assign
@@ -99,7 +53,7 @@ public:
     // get max length of object of this types
     // array: pointer to object
     // name: name for returned value
-    Value *getMaxLength(Value *array, string name = "");
+    Value *getMaxLength(Value *array, std::string name = "");
     // set max length of object of this type
     // array: pointer to object
     // value: value to assign
@@ -107,7 +61,7 @@ public:
     // get factor of object of this types
     // array: pointer to object
     // name: name for returned value
-    Value *getFactor(Value *array, string name = "");
+    Value *getFactor(Value *array, std::string name = "");
     // set factor of object of this types
     // array: pointer to object
     // value: value to assign
@@ -119,7 +73,7 @@ public:
     // create duplicate of object of this type
     // array: pointer to object
     // name: name for returned pointer
-    Value *duplicate(Value *array, string name = "");
+    Value *duplicate(Value *array, std::string name = "");
     // resize of `array` with size `size`
     void resizeBuffer(Value *array, Value *size);
 
@@ -138,7 +92,7 @@ private:
     PointerType *elementPtr = nullptr;  // type of buffer (pointer to element type)
     StructType *self = nullptr;         // this array type
     PointerType *ptr = nullptr;         // pointer to this array type
-    string name = "";                   // name of this array type
+    std::string name = "";              // name of this array type
 
     Function *get_buffer = nullptr;    
     Function *set_buffer = nullptr;    
@@ -159,108 +113,49 @@ private:
     Function *create_copy = nullptr;    // copy constructor
     Function *delete_array = nullptr;   // destructor
 
-    LLVMContext *context;
-    Module *module;
-    IRBuilder<> *builder;
+    Eisdrache *eisdrache = nullptr;
 };
 
 #ifdef LLVM_ARRAY_IMPL 
 
-Memory::Memory(LLVMContext *context, Module *module, IRBuilder<> *builder, Type *type) {
-    this->context = context;
-    this->module = module;
-    this->builder = builder;
-    this->type = type;
-    this->ptr = type->getPointerTo();   
-
-    { // malloc
-    FunctionType *FT = FunctionType::get(ptr, {builder->getInt64Ty()}, false);
-    _malloc = Function::Create(FT, Function::ExternalLinkage, "malloc", *module);
-    llvm::verifyFunction(*_malloc);
-    }
-    { // free
-    FunctionType *FT = FunctionType::get(builder->getVoidTy(), {ptr}, false);
-    _free = Function::Create(FT, Function::ExternalLinkage, "free", *module);
-    llvm::verifyFunction(*_free);
-    }
-    { // memcpy
-    FunctionType *FT = FunctionType::get(ptr, {ptr, ptr, builder->getInt64Ty()}, false);
-    _memcpy = Function::Create(FT, Function::ExternalLinkage, "memcpy", *module);
-    llvm::verifyFunction(*_memcpy);
-    }
-}
-
-Memory::~Memory() {}
-
-Value *Memory::malloc(Value *size, string name) { return builder->CreateCall(_malloc, {size}, name); }
-
-void Memory::free(Value *pointer) { builder->CreateCall(_free, {pointer}); }
-
-Value *Memory::memcpy(Value *dest, Value *source, Value *size) { return builder->CreateCall(_memcpy, {dest, source, size}); }
-
-LLVMContext *Memory::getContext() { return context; }
-
-Module *Memory::getModule() { return module; }
-
-IRBuilder<> *Memory::getBuilder() { return builder; }
-
-Type *Memory::getType() { return type; }
-
-Array::Array(Memory *mem, string name) {
-    context = mem->getContext();
-    module = mem->getModule();
-    builder = mem->getBuilder();
-    elementType = mem->getType();
+EisdracheArray::EisdracheArray(Eisdrache *eisdrache, Type *elementType, std::string typeName) {
+    this->eisdrache = eisdrache;
+    this->elementType = elementType;
     elementPtr = elementType->getPointerTo();
     this->name = name;
 
-    self = StructType::create(*context, {
-        elementPtr,             // type *buffer;
-        builder->getInt64Ty(),  // i64 length;
-        builder->getInt64Ty(),  // i64 maxlength;
-        builder->getInt64Ty(),  // i64 factor; amount to preallocate when growing
+    self = eisdrache->createType({
+        elementPtr,              // type *buffer;
+        eisdrache->getSizeTy(),  // i64 length;
+        eisdrache->getSizeTy(),  // i64 maxlength;
+        eisdrache->getSizeTy(),  // i64 factor; amount to preallocate when growing
     }, name);
     ptr = self->getPointerTo();
 
     { // get_buffer
-    FunctionType *FT = FunctionType::get(elementPtr, {ptr}, false);
-    get_buffer = Function::Create(FT, Function::ExternalLinkage, name+"_get_buffer", *module);
-    BasicBlock *BB = BasicBlock::Create(*context, "entry", get_buffer);
-    
-    builder->SetInsertPoint(BB);
-    Value *buffer_ptr = builder->CreateGEP(self, get_buffer->getArg(0), 
-        {builder->getInt64(0), builder->getInt32(0)}, "buffer_ptr");
-    Value *buffer = builder->CreateLoad(elementPtr, buffer_ptr, "buffer");
-    builder->CreateRet(buffer);
-
+    get_buffer = eisdrache->declare(elementPtr, {ptr}, name+"_get_buffer", true);
+    Value *buffer_ptr = eisdrache->getBuilder()->CreateGEP(self, get_buffer->getArg(0), 
+        {eisdrache->getInt(64, 0), eisdrache->getInt(32, 0)}, "buffer_ptr");
+    Value *buffer = eisdrache->getBuilder()->CreateLoad(elementPtr, buffer_ptr, "buffer");
+    eisdrache->createRet(buffer);
     llvm::verifyFunction(*get_buffer);
     }
 
     { // set_buffer
-    FunctionType *FT = FunctionType::get(builder->getVoidTy(), {ptr, elementPtr}, false);
-    set_buffer = Function::Create(FT, Function::ExternalLinkage, name+"_set_buffer", *module);
-    BasicBlock *BB = BasicBlock::Create(*context, "entry", set_buffer);
-
-    builder->SetInsertPoint(BB);
-    Value *buffer_ptr = builder->CreateGEP(self, set_buffer->getArg(0),
-        {builder->getInt64(0), builder->getInt32(0)}, "buffer_ptr");
-    builder->CreateStore(set_buffer->getArg(1), buffer_ptr);
-    builder->CreateRetVoid();
-
+    set_buffer = eisdrache->declare(eisdrache->getVoidTy(), {ptr, elementPtr}, name+"_set_buffer", true);
+    Value *buffer_ptr = eisdrache->getBuilder()->CreateGEP(self, set_buffer->getArg(0),
+        {eisdrache->getInt(64, 0), eisdrache->getInt(32, 0)}, "buffer_ptr");
+    eisdrache->getBuilder()->CreateStore(set_buffer->getArg(1), buffer_ptr);
+    eisdrache->createRet();
     llvm::verifyFunction(*set_buffer);
     }
     
     { // get_length
-    FunctionType *FT = FunctionType::get(builder->getInt64Ty(), {ptr}, false);
-    get_length = Function::Create(FT, Function::ExternalLinkage, name+"_get_length", *module);
-    BasicBlock *BB = BasicBlock::Create(*context, "entry", get_length);
-
-    builder->SetInsertPoint(BB);
-    Value *length_ptr = builder->CreateGEP(self, get_length->getArg(0),
-        {builder->getInt64(0), builder->getInt32(1)}, "length_ptr");
-    Value *length = builder->CreateLoad(builder->getInt64Ty(), length_ptr, "length");
-    builder->CreateRet(length);
-
+    get_length = eisdrache->declare(eisdrache->getSizeTy(), {ptr}, name+"_get_length", true);
+    Value *length_ptr = eisdrache->getBuilder()->CreateGEP(self, get_length->getArg(0),
+        {eisdrache->getInt(64, 0), eisdrache->getInt(32, 1)}, "length_ptr");
+    Value *length = eisdrache->getBuilder()->CreateLoad(eisdrache->getSizeTy(), length_ptr, "length");
+    eisdrache->createRet(length);
     llvm::verifyFunction(*get_length);
     }
     

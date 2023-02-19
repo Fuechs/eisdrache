@@ -1,11 +1,11 @@
 /**
  * @file llvm_array.cpp
  * @author fuechs
- * @brief llvm array impl
+ * @brief llvm dynamic array type implementation
  * @version 0.1
  * @date 2023-01-29
  * 
- * @copyright Copyright (c) 2023, Fuechs. All rights reserved.
+ * @copyright Copyright (c) 2023, Fuechs. 
  * 
  */
 
