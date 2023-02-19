@@ -134,9 +134,7 @@ EisdracheArray::EisdracheArray(Eisdrache *eisdrache, Type *elementType, std::str
 
     { // get_buffer
     get_buffer = eisdrache->declare(elementPtr, {ptr}, name+"_get_buffer", true);
-    Value *buffer_ptr = eisdrache->getBuilder()->CreateGEP(self, get_buffer->getArg(0), 
-        {eisdrache->getInt(64, 0), eisdrache->getInt(32, 0)}, "buffer_ptr");
-    Value *buffer = eisdrache->getBuilder()->CreateLoad(elementPtr, buffer_ptr, "buffer");
+    Value *buffer = eisdrache->getElementVal(get_buffer->getArg(0), 0, "buffer");
     eisdrache->createRet(buffer);
     llvm::verifyFunction(*get_buffer);
     }

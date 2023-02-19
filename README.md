@@ -18,7 +18,8 @@ int main(void) {
     llvm::Eisdrache *eisdrache = llvm::Eisdrache::create("example");
     
     // type { i64 }
-    StructType *testType = eisdrache->createType({eisdrache->getSizeTy()}, "test_type");
+    StructType *testType = eisdrache->createType(
+        {eisdrache->getSizeTy(), eisdrache->getFloatTy(16)}, "test_type");
     
     // i64 @main (i64, i8*)
     llvm::Function *main = eisdrache->declare(eisdrache->getIntTy(64), 

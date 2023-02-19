@@ -13,7 +13,8 @@
 
 namespace llvm {
 
-WrappedVal::WrappedVal(Kind kind, Type *type, Value *value) : kind(kind), type(type), value(value) {}
+WrappedVal::WrappedVal(Kind kind, Type *type, Value *value, BasicBlock *parent) 
+: kind(kind), type(type), value(value), parent(parent) {}
 
 WrappedVal &WrappedVal::operator=(const WrappedVal &copy) {
     kind = copy.kind;
@@ -75,13 +76,24 @@ Module *Eisdrache::getModule() { return module; }
 IRBuilder<> *Eisdrache::getBuilder() { return builder; }
 
 Type *Eisdrache::getVoidTy() { return builder->getVoidTy(); }
+Type *Eisdrache::getBoolTy() { return builder->getInt1Ty(); }
 IntegerType *Eisdrache::getSizeTy() { return getIntTy(64); }
 IntegerType *Eisdrache::getIntTy(size_t bit) { return Type::getIntNTy(*context, bit); }
 PointerType *Eisdrache::getIntPtrTy(size_t bit) { return Type::getIntNPtrTy(*context, bit); }
 PointerType *Eisdrache::getIntPtrPtrTy(size_t bit) { return getIntPtrTy(bit)->getPointerTo(); }
+Type *Eisdrache::getFloatTy(size_t bit) {
+    switch (bit) {
+        case 16:    return builder->getHalfTy();
+        case 32:    return builder->getFloatTy();
+        case 64:    return builder->getDoubleTy();
+        default:    assert(false && "invalid amount of bits");
+    }
+}
 
+ConstantInt *Eisdrache::getBool(bool value) { return builder->getInt1(value); }
 ConstantInt *Eisdrache::getInt(IntegerType *type, size_t value) { return ConstantInt::get(type, value); }
 ConstantInt *Eisdrache::getInt(size_t bit, size_t value) { return ConstantInt::get(getIntTy(bit), value); }
+ConstantFP *Eisdrache::getFloat(double value) { return ConstantFP::get(*context, APFloat(value)); }
 
 /// BUILDER ///
 Value *Eisdrache::allocate(Type *type, std::string name) { 
@@ -98,6 +110,8 @@ Function *Eisdrache::declare(Type *type, std::vector<Type *> parameters, std::st
     if (entry) {
         BasicBlock *BB = BasicBlock::Create(*context, "entry", F);
         builder->SetInsertPoint(BB);
+        for (Argument &arg : F->args()) 
+            values[arg.getName().str()] = WrappedVal(WrappedVal::PARAMETER, arg.getType(), &arg, BB);
     } else
         llvm::verifyFunction(*F);
     return F;
@@ -105,15 +119,27 @@ Function *Eisdrache::declare(Type *type, std::vector<Type *> parameters, std::st
 
 ReturnInst *Eisdrache::createRet(BasicBlock *next) {
     ReturnInst *inst = builder->CreateRetVoid();
+
+    for (WrappedVal::Map::value_type &x : values) 
+        if (x.second.parent && x.second.parent == inst->getParent())
+            values.erase(x.first);
+    
     if (next)
         builder->SetInsertPoint(next);
+    
     return inst;
 } 
 
 ReturnInst *Eisdrache::createRet(Value *value, BasicBlock *next) {
     ReturnInst *inst = builder->CreateRet(value);
+    
+    for (WrappedVal::Map::value_type &x : values) 
+        if (x.second.parent && x.second.parent == inst->getParent())
+            values.erase(x.first);
+    
     if (next)
         builder->SetInsertPoint(next);
+    
     return inst;
 }
 
@@ -170,9 +196,9 @@ Value *Eisdrache::loadValue(Value *pointer, std::string name, bool force) {
     return pointer;
 }
 
-Value *Eisdrache::malloc(Type *type, Value *size, std::string name) { return call(memoryFunctions[type]["malloc"], {size}, name); }
-void Eisdrache::free(Type *type, Value *value) { call(memoryFunctions[type]["free"], {value}); }
-Value *Eisdrache::memcpy(Type *type, Value *dest, Value *source, Value *size, std::string name) { return call(memoryFunctions[type]["memcpy"], {dest, source, size}, name); }
+Value *Eisdrache::malloc(Type *type, Value *size, std::string name) { return call(memoryFunctions.at(type)["malloc"], {size}, name); }
+void Eisdrache::free(Type *type, Value *value) { call(memoryFunctions.at(type)["free"], {value}); }
+Value *Eisdrache::memcpy(Type *type, Value *dest, Value *source, Value *size, std::string name) { return call(memoryFunctions.at(type)["memcpy"], {dest, source, size}, name); }
 
 void Eisdrache::createMemoryFunctions(Type *type) {
     PointerType *ptrType = type->getPointerTo();

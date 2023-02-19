@@ -36,12 +36,13 @@ struct WrappedVal {
 
     typedef std::unordered_map<std::string, WrappedVal> Map;
 
-    WrappedVal(Kind = NONE, Type *type = nullptr, Value *value = nullptr);
+    WrappedVal(Kind = NONE, Type *type = nullptr, Value *value = nullptr, BasicBlock *parent = nullptr);
     WrappedVal &operator=(const WrappedVal &copy);
     
     Kind kind;
     Type *type;
     Value *value;
+    BasicBlock *parent;
 };
 
 struct WrappedType {
@@ -69,19 +70,27 @@ public:
     // dumb the Module
     void dump(raw_fd_ostream &outs = errs());
 
-    // getter functions
+    /// getter functions ///
+    
     LLVMContext *getContext();
     Module *getModule();
     IRBuilder<> *getBuilder();
+    
     Type *getVoidTy();
+    Type *getBoolTy();
     IntegerType *getSizeTy();
     IntegerType *getIntTy(size_t bit);
     PointerType *getIntPtrTy(size_t bit);
     PointerType *getIntPtrPtrTy(size_t bit);
+    Type *getFloatTy(size_t bit);
+
+    ConstantInt *getBool(bool value);
     ConstantInt *getInt(IntegerType *type, size_t value);
     ConstantInt *getInt(size_t bit, size_t value);
+    ConstantFP *getFloat(double value);
 
-    // builder functions
+    /// builder functions ///
+
     Value *allocate(Type *type, std::string name = "");
     Value *call(Function *callee, std::vector<Value *> args = {}, std::string name = "");
     // `entry`: set insert point at this function
