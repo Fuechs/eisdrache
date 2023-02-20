@@ -14,12 +14,14 @@
 namespace llvm {
 
 WrappedVal::WrappedVal(Kind kind, Type *type, Value *value, BasicBlock *parent) 
-: kind(kind), type(type), value(value), parent(parent) {}
+: kind(kind), type(type), value(value), future(nullptr), parent(parent) {}
 
 WrappedVal &WrappedVal::operator=(const WrappedVal &copy) {
     kind = copy.kind;
     type = copy.type;
     value = copy.value;
+    future = copy.future;
+    parent = copy.parent;
     return *this;
 }
 
@@ -239,10 +241,20 @@ WrappedType &Eisdrache::getWrap(Type *type) {
 
 Value *Eisdrache::loadValue(Value *pointer, std::string name, bool force) {
     WrappedVal &that = getWrap(pointer);
-    if (force || that.kind == WrappedVal::LOCAL)
+    
+    if (that.future) {
+        builder->CreateStore(that.future, that.value);
+        that.future = nullptr;
+    }
+    
+    if (force || that.kind == WrappedVal::LOCAL) {
         return builder->CreateLoad(that.type, pointer, name.empty() ? pointer->getName()+"_load_" : name);
+    }
+    
     return pointer;
 }
+
+void Eisdrache::setFuture(Value *local, Value *value) { getWrap(local).future = value; }
 
 Value *Eisdrache::malloc(Type *type, Value *size, std::string name) { 
     return call(memoryFunctions.at(type->getPointerTo())["malloc"], {size}, name); 

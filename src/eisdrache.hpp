@@ -51,6 +51,7 @@ struct WrappedVal {
     Kind kind;
     Type *type;
     Value *value;
+    Value *future; // value to assign when Value gets referenced (relevant for Kind::LOCAL)
     BasicBlock *parent;
 };
 
@@ -139,7 +140,9 @@ public:
     WrappedType &getWrap(Type *type);
     // load value if pointer is WrappedVal::LOCAL
     Value *loadValue(Value *pointer, std::string name = "", bool force = false);
-
+    // leave future value for local variable
+    void setFuture(Value *local, Value *value);
+ 
     // call TYPE *malloc (SIZE_T size)
     Value *malloc(Type *type, Value *size, std::string name = "");
     // call void free (TYPE *value)

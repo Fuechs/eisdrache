@@ -16,29 +16,22 @@
 
 int main(void) {
     llvm::Eisdrache::init();
-    llvm::Eisdrache *eisdrache = llvm::Eisdrache::create("example");
-    
-    // type { i64, half }
+    llvm::Eisdrache *eisdrache = llvm::Eisdrache::create("test compiler");
+     // type { i64, half }
     StructType *testType = eisdrache->createType(
         {eisdrache->getSizeTy(), eisdrache->getFloatTy(16)}, "test_type");
-    
     // i64 @main (i64, i8*)
     llvm::Function *main = eisdrache->declare(eisdrache->getIntTy(64), 
         {eisdrache->getIntTy(64), eisdrache->getIntPtrTy(8)}, "main", true);
-    
     // %allocated = alloca %test_type
     Value *allocated = eisdrache->allocate(testType, "allocated");
-    
-    // store i64 0, ptr allocated.elements[0]
-    eisdrache->store(eisdrache->getInt(64, 0), allocated, 0);
-    
-    // %val_ptr_ = getelementptr %test_type, ptr %allocated, i64 0, i32 0
-    // %val = load i64, ptr %val_ptr_
-    Value *val = eisdrache->getElementVal(allocated, 0, "val");
-    
+    // store i64 0, ptr allocated.elements[0] (once it gets referenced)
+    Value *elemPtr = eisdrache->getElementPtr(allocated, 0, "val_ptr");
+    eisdrache->setFuture(elemPtr, eisdrache->getInt(64, 0));
+    // %val = load i64, ptr %val_ptr
+    Value *val = eisdrache->loadValue(elemPtr, "val", true);
     // ret i64 %val
     eisdrache->createRet(val);
-    
     llvm::verifyFunction(*main);
     eisdrache->dump();
     return 0;
