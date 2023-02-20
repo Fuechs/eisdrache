@@ -15,6 +15,7 @@
 #include "eisdrache.hpp"
 
 int main(void) {
+    llvm::Eisdrache::init();
     llvm::Eisdrache *eisdrache = llvm::Eisdrache::create("example");
     
     // type { i64 }

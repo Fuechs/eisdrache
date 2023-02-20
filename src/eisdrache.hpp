@@ -11,15 +11,24 @@
 
 #pragma once
 
+#include <iostream>
 #include <string>
 #include <vector>
 #include <map>
 
+#include <llvm/PassRegistry.h>
+#include "llvm/InitializePasses.h"
+#include <llvm/ADT/Triple.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/Verifier.h>
+#include <llvm/Target/TargetMachine.h>
+#include <llvm/Target/TargetOptions.h>
+#include "llvm/Support/TargetSelect.h"
+#include <llvm/MC/TargetRegistry.h>
+#include <llvm/ExecutionEngine/ExecutionEngine.h>
 
 namespace llvm {
 
@@ -62,10 +71,12 @@ class Eisdrache {
 public:
     ~Eisdrache();
 
-    static Eisdrache *create(std::string moduleID);
-    static Eisdrache *create(LLVMContext *context, std::string moduleID);
-    static Eisdrache *create(Module *module);
-    static Eisdrache *create(Module *module, IRBuilder<> *builder);
+    static void init();
+
+    static Eisdrache *create(std::string moduleID, std::string targetTriple = "");
+    static Eisdrache *create(LLVMContext *context, std::string moduleID, std::string targetTriple = "");
+    static Eisdrache *create(Module *module, std::string targetTriple = "");
+    static Eisdrache *create(Module *module, IRBuilder<> *builder, std::string targetTriple = "");
 
     // dumb the Module
     void dump(raw_fd_ostream &outs = errs());
@@ -141,7 +152,7 @@ public:
 private:
     typedef std::map<Type *, std::map<std::string, Function *>> MemoryFuncMap;
 
-    Eisdrache(LLVMContext *, Module *, IRBuilder<> *);
+    Eisdrache(LLVMContext *, Module *, IRBuilder<> *, std::string);
 
     LLVMContext *context;
     Module *module;

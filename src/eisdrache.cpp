@@ -40,29 +40,62 @@ Type *WrappedType::operator[](signed long long index) {
 
 /// CREATE ///
 
-Eisdrache::Eisdrache(LLVMContext *context, Module *module, IRBuilder<> *builder)
-: context(context), module(module), builder(builder) {}
+Eisdrache::Eisdrache(LLVMContext *context, Module *module, IRBuilder<> *builder, std::string targetTriple) {
+    this->context = context;
+    this->module = module;
+    this->builder = builder;
+
+    TargetOptions targetOptions = TargetOptions();
+    targetOptions.FloatABIType = FloatABI::Hard;
+    TargetMachine *targetMachine = nullptr;
+
+    if (targetTriple.empty()) {
+        EngineBuilder engineBuilder = EngineBuilder();
+        engineBuilder.setTargetOptions(targetOptions);
+        targetMachine = engineBuilder.selectTarget();
+    } else {
+        std::string error;
+        const Target *target = TargetRegistry::lookupTarget(targetTriple, error);
+        if (!target) {
+            std::cerr << error << "\n";
+            assert(false && "TargetRegistry::lookupTarget() failed");
+        }
+        targetMachine = target->createTargetMachine(targetTriple, "generic", "", targetOptions, None);
+    }
+
+    module->setTargetTriple(targetMachine->getTargetTriple().str());
+    module->setDataLayout(targetMachine->createDataLayout());
+}
 
 Eisdrache::~Eisdrache() {
     delete builder;
     memoryFunctions.clear();
 }
 
-Eisdrache *Eisdrache::create(std::string moduleID) {
+void Eisdrache::init() {
+    PassRegistry *registry = PassRegistry::getPassRegistry();
+    InitializeAllTargetInfos();
+    InitializeAllTargets();
+    InitializeAllTargetMCs();
+    InitializeNativeTarget();
+    initializeTarget(*registry);
+}
+
+Eisdrache *Eisdrache::create(std::string moduleID, std::string targetTriple) {
     LLVMContext *context = new LLVMContext();
-    return new Eisdrache(context, new Module(moduleID, *context), new IRBuilder<>(*context));
+    return new Eisdrache(context, new Module(moduleID, *context), new IRBuilder<>(*context), targetTriple);
 }
 
-Eisdrache *Eisdrache::create(LLVMContext *context, std::string moduleID) {
-    return new Eisdrache(context, new Module(moduleID, *context), new IRBuilder<>(*context));
+Eisdrache *Eisdrache::create(LLVMContext *context, std::string moduleID, std::string targetTriple) {
+    return new Eisdrache(context, new Module(moduleID, *context), new IRBuilder<>(*context), targetTriple);
 }
 
-Eisdrache *Eisdrache::create(Module *module) {
-    return new Eisdrache(&module->getContext(), module, new IRBuilder<>(module->getContext()));
+Eisdrache *Eisdrache::create(Module *module, std::string targetTriple) {
+    return new Eisdrache(&module->getContext(), module, new IRBuilder<>(module->getContext()), targetTriple);
 }
 
-Eisdrache *Eisdrache::create(Module *module, IRBuilder<> *builder) {
-    return new Eisdrache(&module->getContext(), module, builder);
+Eisdrache *Eisdrache::create(Module *module, IRBuilder<> *builder, std::string targetTriple) {
+    return new Eisdrache(&module->getContext(), module, builder, targetTriple);
 };
 
 /// DEBUG ///
