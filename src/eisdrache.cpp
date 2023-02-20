@@ -221,6 +221,85 @@ BasicBlock *Eisdrache::block(bool insert, std::string name) {
     return BB;
 }
 
+Value *Eisdrache::binaryOp(BinaryOp op, Value *LHS, Value *RHS, std::string name) {
+    Value *lLoad = loadValue(LHS, name+"_lhs_load_");
+    Value *rLoad = loadValue(RHS, name+"_rhs_load_");
+
+    if (lLoad->getType() != rLoad->getType())
+        assert(false && "operands have different types");
+
+    Instruction::BinaryOps llvmOp;
+    Type *retType = lLoad->getType();
+
+    switch (op) {
+        case ADD: 
+            if (retType->isFloatingPointTy()) llvmOp = Instruction::FAdd;
+            else llvmOp = Instruction::Add;
+            break;
+        case SUB: 
+            if (retType->isFloatingPointTy()) llvmOp = Instruction::FSub;
+            else llvmOp = Instruction::Sub; 
+            break;
+        case MUL: 
+            if (retType->isFloatingPointTy()) llvmOp = Instruction::FMul;
+            else llvmOp = Instruction::Mul;
+            break;
+        case DIV: 
+            if (retType->isIntegerTy()) retType = getFloatTy(64);
+            llvmOp = Instruction::FDiv; 
+            break;        
+        default:    assert(false && "binary operation not implemented");
+    }
+
+    Value *binOp = builder->CreateBinOp(llvmOp, LHS, RHS, name);
+    values[binOp->getName().str()] = WrappedVal(WrappedVal::LOADED, retType, binOp, builder->GetInsertBlock());
+    return binOp;
+}
+
+Value *Eisdrache::convert(Type *type, Value *value, std::string name) {
+    value = loadValue(value, name+"_cast_value_load_");
+    Type *from = value->getType();
+    Instruction::CastOps op;
+
+    if (from == type) return value;
+
+    if (from->isIntegerTy()) {      
+        if (type->isIntegerTy()) {                                              // INTEGER TO INTEGER
+            if (from->getIntegerBitWidth() > type->getIntegerBitWidth()) 
+                op = Instruction::Trunc;
+            else 
+                op = Instruction::ZExt;
+        } else if (type->isPointerTy())                                         // INTEGER TO POINTER
+            op = Instruction::IntToPtr;
+        else if (type->isFloatingPointTy())                                     // INTEGER TO FLOAT
+            op = Instruction::UIToFP;
+        else
+            assert(false && "cast not implemented");
+    } else if (from->isPointerTy()) {                     
+        if (type->isPointerTy())                                                // POINTER TO POINTER
+            op = Instruction::BitCast;
+        else if (type->isIntegerTy())                                           // POINTER TO INTEGER
+            op = Instruction::PtrToInt;
+        else
+            assert(false && "cast not implemented");
+    } else if (from->isFloatingPointTy()) { 
+        if (type->isFloatingPointTy()) {                                        // FLOAT TO FLOAT
+            if (from->getFPMantissaWidth() > type->getFPMantissaWidth())
+                op = Instruction::FPTrunc;
+            else
+                op = Instruction::FPExt;
+        } else if (type->isIntegerTy())                                         // FLOAT TO INTEGER
+            op = Instruction::FPToUI;
+        else
+            assert(false && "cast not implemented");
+    } else 
+        assert(false && "cast not implemented");
+
+    Value *cast = builder->CreateCast(op, value, type, name);
+    values[cast->getName().str()] = WrappedVal(WrappedVal::LOADED, type, cast, builder->GetInsertBlock());
+    return cast;
+}
+
 WrappedVal &Eisdrache::getWrap(Value *pointer) {
     for (WrappedVal::Map::value_type &x : values) 
         if (x.second.value == pointer)
@@ -230,7 +309,7 @@ WrappedVal &Eisdrache::getWrap(Value *pointer) {
 
 WrappedType &Eisdrache::getWrap(Type *type) {
     if (!type->isStructTy())
-        assert (false && "type is not a StructType *");
+        assert(false && "type is not a StructType *");
 
     for (WrappedType::Map::value_type &x : types) 
         if ((Type *) x.second.type == type)
@@ -240,6 +319,9 @@ WrappedType &Eisdrache::getWrap(Type *type) {
 }
 
 Value *Eisdrache::loadValue(Value *pointer, std::string name, bool force) {
+    if (isConstant(pointer)) 
+        return pointer;
+
     WrappedVal &that = getWrap(pointer);
     
     if (that.future) {
@@ -248,13 +330,17 @@ Value *Eisdrache::loadValue(Value *pointer, std::string name, bool force) {
     }
     
     if (force || that.kind == WrappedVal::LOCAL) {
-        return builder->CreateLoad(that.type, pointer, name.empty() ? pointer->getName()+"_load_" : name);
+        Value *loaded = builder->CreateLoad(that.type, pointer, name.empty() ? pointer->getName()+"_load_" : name);
+        values[loaded->getName().str()] = WrappedVal(WrappedVal::LOADED, that.type, loaded, builder->GetInsertBlock());
+        return loaded;
     }
     
     return pointer;
 }
 
 void Eisdrache::setFuture(Value *local, Value *value) { getWrap(local).future = value; }
+
+bool Eisdrache::isConstant(Value *value) { return isa<Constant>(value); }
 
 Value *Eisdrache::malloc(Type *type, Value *size, std::string name) { 
     return call(memoryFunctions.at(type->getPointerTo())["malloc"], {size}, name); 

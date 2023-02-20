@@ -51,6 +51,7 @@ struct WrappedVal {
     Kind kind;
     Type *type;
     Value *value;
+    // TODO: add future function call (for struct types, etc.)
     Value *future; // value to assign when Value gets referenced (relevant for Kind::LOCAL)
     BasicBlock *parent;
 };
@@ -70,6 +71,13 @@ struct WrappedType {
 
 class Eisdrache {
 public:
+    enum BinaryOp {
+        ADD, 
+        SUB,
+        MUL, 
+        DIV
+    };
+
     ~Eisdrache();
 
     static void init();
@@ -133,6 +141,10 @@ public:
     // create new block with current parent 
     // `insert`: start insertion)
     BasicBlock *block(bool insert = false, std::string name = "");
+    // create a binary op 
+    Value *binaryOp(BinaryOp op, Value *LHS, Value *RHS, std::string name = "");
+    // convert / cast a value to a different type
+    Value *convert(Type *type, Value *value, std::string name = "");
 
     // get WrappedVal of pointer 
     WrappedVal &getWrap(Value *pointer);
@@ -142,6 +154,8 @@ public:
     Value *loadValue(Value *pointer, std::string name = "", bool force = false);
     // leave future value for local variable
     void setFuture(Value *local, Value *value);
+    // check if a value is a constant value
+    bool isConstant(Value *value);
  
     // call TYPE *malloc (SIZE_T size)
     Value *malloc(Type *type, Value *size, std::string name = "");
