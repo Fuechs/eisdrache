@@ -62,7 +62,7 @@ struct WrappedType {
     WrappedType(StructType *type = nullptr, std::vector<Type *> elementTypes = {});
     WrappedType &operator=(const WrappedType &copy);
     // index < 0 returns StructType *
-    Type *operator[](signed long long index);
+    Type *operator[](int64_t index);
 
 
     StructType *type;
@@ -72,10 +72,21 @@ struct WrappedType {
 class Eisdrache {
 public:
     enum BinaryOp {
-        ADD, 
-        SUB,
-        MUL, 
-        DIV
+        ADD,        // + addition
+        SUB,        // - subtraction
+        MUL,        // * multiplication
+        DIV,        // / division
+        XOR,        // ^ bit xor
+        OR,         // | bit or
+        AND,        // & bit and
+        LSH,        // << left bit shift
+        RSH,        // >> right bit shift
+        EQU,        // == equals
+        NEQ,        // != not equals
+        GT,         // > greater than
+        GTE,        // >= greater than or equals
+        LT,         // < less than
+        LTE         // <= less than or equals
     };
 
     ~Eisdrache();
@@ -156,6 +167,8 @@ public:
     void setFuture(Value *local, Value *value);
     // check if a value is a constant value
     bool isConstant(Value *value);
+    // check if a value is a function parameter
+    bool isArgument(Value *value);
  
     // call TYPE *malloc (SIZE_T size)
     Value *malloc(Type *type, Value *size, std::string name = "");

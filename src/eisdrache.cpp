@@ -34,7 +34,7 @@ WrappedType &WrappedType::operator=(const WrappedType &copy) {
     return *this;
 }
 
-Type *WrappedType::operator[](signed long long index) {
+Type *WrappedType::operator[](int64_t index) {
     if (index < 0) 
         return type;
     return elementTypes[index];
@@ -147,7 +147,7 @@ Function *Eisdrache::declare(Type *type, std::vector<Type *> parameters, std::st
     if (entry) {
         BasicBlock *BB = BasicBlock::Create(*context, "entry", F);
         builder->SetInsertPoint(BB);
-        for (Argument &arg : F->args()) 
+        for (Argument &arg : F->args()) // FIXME: parameters can not found in values
             values[arg.getName().str()] = WrappedVal(WrappedVal::PARAMETER, arg.getType(), &arg, BB);
     } else
         llvm::verifyFunction(*F);
@@ -228,8 +228,10 @@ Value *Eisdrache::binaryOp(BinaryOp op, Value *LHS, Value *RHS, std::string name
     if (lLoad->getType() != rLoad->getType())
         assert(false && "operands have different types");
 
-    Instruction::BinaryOps llvmOp;
+    size_t llvmOp;
     Type *retType = lLoad->getType();
+    bool comparison = false;
+    CmpInst::Predicate pred;
 
     switch (op) {
         case ADD: 
@@ -248,10 +250,64 @@ Value *Eisdrache::binaryOp(BinaryOp op, Value *LHS, Value *RHS, std::string name
             if (retType->isIntegerTy()) retType = getFloatTy(64);
             llvmOp = Instruction::FDiv; 
             break;        
+        case XOR:
+            if (!retType->isIntegerTy()) assert(false && "invalid operands for xor");
+            llvmOp = Instruction::Xor;
+            break;
+        case OR:
+            if (!retType->isIntegerTy()) assert(false && "invalid operands for or");
+            llvmOp = Instruction::Or;
+            break;
+        case AND:
+            if (!retType->isIntegerTy()) assert(false && "invalid operands for and");
+            llvmOp = Instruction::And;
+            break;
+        case LSH:
+            if (!retType->isIntegerTy()) assert(false && "invalid operands for left shift");
+            llvmOp = Instruction::Shl;
+            break;
+        case RSH:
+            if (!retType->isIntegerTy()) assert(false && "invalid operands for right shift");
+            llvmOp = Instruction::LShr;
+            break;
+        case EQU:
+            comparison = true;
+            if (retType->isIntegerTy()) pred = CmpInst::ICMP_EQ;
+            else pred = CmpInst::FCMP_OEQ;
+            break;
+        case NEQ:
+            comparison = true;
+            if (retType->isIntegerTy()) pred = CmpInst::ICMP_NE;
+            else pred = CmpInst::FCMP_ONE;
+            break;
+        case GT:
+            comparison = true;
+            if (retType->isIntegerTy()) pred = CmpInst::ICMP_UGT;
+            else pred = CmpInst::FCMP_OGT; 
+            break;
+        case GTE:
+            comparison = true;
+            if (retType->isIntegerTy()) pred = CmpInst::ICMP_UGE;
+            else pred = CmpInst::FCMP_OGE; 
+            break;
+        case LT:
+            comparison = true;
+            if (retType->isIntegerTy()) pred = CmpInst::ICMP_ULT;
+            else pred = CmpInst::FCMP_OLT;
+            break;
+        case LTE:
+            comparison = true;
+            if (retType->isIntegerTy()) pred = CmpInst::ICMP_ULE;
+            else pred = CmpInst::FCMP_OLE;
+            break;
         default:    assert(false && "binary operation not implemented");
     }
-
-    Value *binOp = builder->CreateBinOp(llvmOp, LHS, RHS, name);
+    
+    Value *binOp;
+    if (comparison) 
+        binOp = builder->CreateCmp(pred, LHS, RHS, name);
+    else 
+        binOp = builder->CreateBinOp((Instruction::BinaryOps) llvmOp, LHS, RHS, name);
     values[binOp->getName().str()] = WrappedVal(WrappedVal::LOADED, retType, binOp, builder->GetInsertBlock());
     return binOp;
 }
@@ -319,7 +375,7 @@ WrappedType &Eisdrache::getWrap(Type *type) {
 }
 
 Value *Eisdrache::loadValue(Value *pointer, std::string name, bool force) {
-    if (isConstant(pointer)) 
+    if (isConstant(pointer) | isArgument(pointer)) 
         return pointer;
 
     WrappedVal &that = getWrap(pointer);
@@ -341,6 +397,8 @@ Value *Eisdrache::loadValue(Value *pointer, std::string name, bool force) {
 void Eisdrache::setFuture(Value *local, Value *value) { getWrap(local).future = value; }
 
 bool Eisdrache::isConstant(Value *value) { return isa<Constant>(value); }
+
+bool Eisdrache::isArgument(Value *value) { return isa<Argument>(value); }
 
 Value *Eisdrache::malloc(Type *type, Value *size, std::string name) { 
     return call(memoryFunctions.at(type->getPointerTo())["malloc"], {size}, name); 
