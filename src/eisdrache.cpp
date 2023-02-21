@@ -124,6 +124,8 @@ Type *Eisdrache::getFloatTy(size_t bit) {
         default:    assert(false && "invalid amount of bits");
     }
 }
+PointerType *Eisdrache::getFloatPtrTy(size_t bit) { return getFloatTy(bit)->getPointerTo(); }
+PointerType *Eisdrache::getFloatPtrPtrTy(size_t bit) { return getFloatPtrTy(bit)->getPointerTo(); }
 
 ConstantInt *Eisdrache::getBool(bool value) { return builder->getInt1(value); }
 ConstantInt *Eisdrache::getInt(IntegerType *type, size_t value) { return ConstantInt::get(type, value); }
@@ -429,6 +431,22 @@ void Eisdrache::setFuture(Value *local, Value *value) { getWrap(local).future = 
 bool Eisdrache::isConstant(Value *value) { return isa<Constant>(value); }
 
 bool Eisdrache::isArgument(Value *value) { return isa<Argument>(value); }
+
+Type *Eisdrache::getElementType(Type *type) {
+    if (!type->isPointerTy())
+        return type;
+
+    for (WrappedType::Map::value_type &x : types)
+        if (type == x.second.type->getPointerTo()) return x.second.type;
+
+    for (size_t bit = 16; bit <= 64; bit *= 2)
+        if (type == getFloatPtrTy(bit)) return getFloatTy(bit);
+    
+    for (size_t bit = 1; bit <= 128 ; bit++) 
+        if (type == getIntPtrTy(bit)) return getIntTy(bit);
+    
+    assert(false && "element type not implemented");
+}
 
 Value *Eisdrache::malloc(Type *type, Value *size, std::string name) { 
     return call(memoryFunctions.at(type)["malloc"], {size}, name); 

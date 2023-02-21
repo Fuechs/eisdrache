@@ -114,6 +114,8 @@ public:
     PointerType *getIntPtrTy(size_t bit);
     PointerType *getIntPtrPtrTy(size_t bit);
     Type *getFloatTy(size_t bit);
+    PointerType *getFloatPtrTy(size_t bit);
+    PointerType *getFloatPtrPtrTy(size_t bit);
 
     ConstantInt *getBool(bool value);
     ConstantInt *getInt(IntegerType *type, size_t value);
@@ -173,6 +175,9 @@ public:
     bool isConstant(Value *value);
     // check if a value is a function parameter
     bool isArgument(Value *value);
+    // get element type if type is a pointer type
+    // doesn't work on i8**, etc.
+    Type *getElementType(Type *type);
  
     // call TYPE *malloc (SIZE_T size)
     Value *malloc(Type *type, Value *size, std::string name = "");
