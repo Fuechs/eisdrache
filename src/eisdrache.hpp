@@ -156,6 +156,8 @@ public:
     Value *binaryOp(BinaryOp op, Value *LHS, Value *RHS, std::string name = "");
     // convert / cast a value to a different type
     Value *convert(Type *type, Value *value, std::string name = "");
+    // create a global string literal
+    Constant *literal(std::string value, std::string name = "");
 
     // get WrappedVal of pointer 
     WrappedVal &getWrap(Value *pointer);

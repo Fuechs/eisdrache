@@ -356,6 +356,12 @@ Value *Eisdrache::convert(Type *type, Value *value, std::string name) {
     return cast;
 }
 
+Constant *Eisdrache::literal(std::string value, std::string name) {
+    Constant *literal = builder->CreateGlobalStringPtr(value, name, 0, module);
+    values[literal->getName().str()] = WrappedVal(WrappedVal::LITERAL, getIntPtrTy(8), literal, builder->GetInsertBlock());
+    return literal;
+}
+
 WrappedVal &Eisdrache::getWrap(Value *pointer) {
     for (WrappedVal::Map::value_type &x : values) 
         if (x.second.value == pointer)
