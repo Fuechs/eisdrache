@@ -135,11 +135,15 @@ ConstantPointerNull *Eisdrache::getNullPtr(PointerType *type) { return ConstantP
 
 Value *Eisdrache::allocate(Type *type, std::string name) { 
     Value *allocated = builder->CreateAlloca(type, nullptr, name);
-    values[allocated->getName().str()] = WrappedVal(WrappedVal::LOCAL, type, allocated);
+    values.push_back( WrappedVal(WrappedVal::LOCAL, type, allocated));
     return allocated;
 }
 
-Value *Eisdrache::call(Function *function, std::vector<Value *> args, std::string name) { return builder->CreateCall(function, args, name); };
+Value *Eisdrache::call(Function *function, std::vector<Value *> args, std::string name) { 
+    Value *_call = builder->CreateCall(function, args, name);
+    values.push_back(WrappedVal(WrappedVal::LOADED, function->getType(), _call, builder->GetInsertBlock()));
+    return _call;
+};
 
 Function *Eisdrache::declare(Type *type, std::vector<Type *> parameters, std::string name, bool entry) {
     FunctionType *FT = FunctionType::get(type, parameters, false);
@@ -147,8 +151,8 @@ Function *Eisdrache::declare(Type *type, std::vector<Type *> parameters, std::st
     if (entry) {
         BasicBlock *BB = BasicBlock::Create(*context, "entry", F);
         builder->SetInsertPoint(BB);
-        for (Argument &arg : F->args()) // FIXME: parameters can not found in values
-            values[arg.getName().str()] = WrappedVal(WrappedVal::PARAMETER, arg.getType(), &arg, BB);
+        for (Argument &arg : F->args()) 
+            values.push_back(WrappedVal(WrappedVal::PARAMETER, arg.getType(), &arg, BB));
     } else
         llvm::verifyFunction(*F);
     return F;
@@ -156,11 +160,10 @@ Function *Eisdrache::declare(Type *type, std::vector<Type *> parameters, std::st
 
 ReturnInst *Eisdrache::createRet(BasicBlock *next) {
     ReturnInst *inst = builder->CreateRetVoid();
-
-    for (WrappedVal::Map::value_type &x : values) 
-        if (x.second.parent 
-        && x.second.parent->getParent() == inst->getParent()->getParent())
-            values.erase(x.first);
+    
+    for (size_t i = 0; i < values.size(); i++)
+        if (values[i].parent && values[i].parent->getParent() == inst->getParent()->getParent())
+            values.erase(values.begin() + i);
     
     if (next)
         builder->SetInsertPoint(next);
@@ -171,10 +174,9 @@ ReturnInst *Eisdrache::createRet(BasicBlock *next) {
 ReturnInst *Eisdrache::createRet(Value *value, BasicBlock *next) {
     ReturnInst *inst = builder->CreateRet(value);
     
-    for (WrappedVal::Map::value_type &x : values) 
-        if (x.second.parent 
-        && x.second.parent->getParent() == inst->getParent()->getParent())
-            values.erase(x.first);
+    for (size_t i = 0; i < values.size(); i++)
+        if (values[i].parent && values[i].parent->getParent() == inst->getParent()->getParent())
+            values.erase(values.begin() + i);
     
     if (next)
         builder->SetInsertPoint(next);
@@ -191,15 +193,15 @@ StructType *Eisdrache::createType(std::vector<Type *> elements, std::string name
 Value *Eisdrache::getElementPtr(Value *ptr, size_t index, std::string name) {
     Type *structType = getWrap(ptr).type; 
     WrappedType &wrap = getWrap(structType);
-    Value *elementPtr = builder->CreateGEP(structType, ptr, {getInt(64, 0), getInt(32, index)}, name);
-    values[elementPtr->getName().str()] = WrappedVal(WrappedVal::LOADED, wrap[index], elementPtr);
+    Value *elementPtr = builder->CreateGEP(wrap.type, ptr, {getInt(64, 0), getInt(32, index)}, name);
+    values.push_back(WrappedVal(WrappedVal::LOADED, wrap[index], elementPtr));
     return elementPtr;
 } 
 
 Value *Eisdrache::getElementVal(Value *ptr, size_t index, std::string name) {
     Value *elementPtr = getElementPtr(ptr, index, name+"_ptr_");
     Value *elementVal = loadValue(elementPtr, name, true);
-    values[elementVal->getName().str()] = WrappedVal(WrappedVal::LOADED, elementVal->getType(), elementVal);
+    values.push_back(WrappedVal(WrappedVal::LOADED, elementVal->getType(), elementVal));
     return elementVal;
 }
 
@@ -213,6 +215,8 @@ void Eisdrache::store(Value *value, Value *ptr) { builder->CreateStore(value, pt
 BranchInst *Eisdrache::jump(BasicBlock *block) { return builder->CreateBr(block); }
 
 BranchInst *Eisdrache::condJump(Value *condition, BasicBlock *then, BasicBlock *Else) { return builder->CreateCondBr(condition, then, Else); }
+
+void Eisdrache::setBlock(BasicBlock *block) { builder->SetInsertPoint(block); }
 
 BasicBlock *Eisdrache::block(bool insert, std::string name) {
     BasicBlock *BB = BasicBlock::Create(*context, name, builder->GetInsertBlock()->getParent());
@@ -272,33 +276,33 @@ Value *Eisdrache::binaryOp(BinaryOp op, Value *LHS, Value *RHS, std::string name
             break;
         case EQU:
             comparison = true;
-            if (retType->isIntegerTy()) pred = CmpInst::ICMP_EQ;
-            else pred = CmpInst::FCMP_OEQ;
+            if (retType->isFloatingPointTy()) pred = CmpInst::FCMP_OEQ;
+            else pred = CmpInst::ICMP_EQ;
             break;
         case NEQ:
             comparison = true;
-            if (retType->isIntegerTy()) pred = CmpInst::ICMP_NE;
-            else pred = CmpInst::FCMP_ONE;
+            if (retType->isFloatingPointTy()) pred = CmpInst::FCMP_ONE;
+            else pred = CmpInst::ICMP_NE;
             break;
         case GT:
             comparison = true;
-            if (retType->isIntegerTy()) pred = CmpInst::ICMP_UGT;
-            else pred = CmpInst::FCMP_OGT; 
+            if (retType->isFloatingPointTy()) pred = CmpInst::FCMP_OGT;
+            else pred = CmpInst::ICMP_UGT; 
             break;
         case GTE:
             comparison = true;
-            if (retType->isIntegerTy()) pred = CmpInst::ICMP_UGE;
-            else pred = CmpInst::FCMP_OGE; 
+            if (retType->isFloatingPointTy()) pred = CmpInst::FCMP_OGE;
+            else pred = CmpInst::ICMP_UGE; 
             break;
         case LT:
             comparison = true;
-            if (retType->isIntegerTy()) pred = CmpInst::ICMP_ULT;
-            else pred = CmpInst::FCMP_OLT;
+            if (retType->isFloatingPointTy()) pred = CmpInst::FCMP_OLT;
+            else pred = CmpInst::ICMP_ULT;
             break;
         case LTE:
             comparison = true;
-            if (retType->isIntegerTy()) pred = CmpInst::ICMP_ULE;
-            else pred = CmpInst::FCMP_OLE;
+            if (retType->isFloatingPointTy()) pred = CmpInst::FCMP_OLE;
+            else pred = CmpInst::ICMP_ULE;
             break;
         default:    assert(false && "binary operation not implemented");
     }
@@ -308,7 +312,7 @@ Value *Eisdrache::binaryOp(BinaryOp op, Value *LHS, Value *RHS, std::string name
         binOp = builder->CreateCmp(pred, LHS, RHS, name);
     else 
         binOp = builder->CreateBinOp((Instruction::BinaryOps) llvmOp, LHS, RHS, name);
-    values[binOp->getName().str()] = WrappedVal(WrappedVal::LOADED, retType, binOp, builder->GetInsertBlock());
+    values.push_back(WrappedVal(WrappedVal::LOADED, retType, binOp, builder->GetInsertBlock()));
     return binOp;
 }
 
@@ -348,36 +352,50 @@ Value *Eisdrache::convert(Type *type, Value *value, std::string name) {
             op = Instruction::FPToUI;
         else
             assert(false && "cast not implemented");
-    } else 
+    } else if (from->isIntegerTy(1)) {
+        if (type->isPointerTy())
+            op = Instruction::IntToPtr;
+        else if (type->isFloatingPointTy())
+            op = Instruction::UIToFP;
+    } else
         assert(false && "cast not implemented");
 
     Value *cast = builder->CreateCast(op, value, type, name);
-    values[cast->getName().str()] = WrappedVal(WrappedVal::LOADED, type, cast, builder->GetInsertBlock());
+    values.push_back(WrappedVal(WrappedVal::LOADED, type, cast, builder->GetInsertBlock()));
     return cast;
 }
 
 Constant *Eisdrache::literal(std::string value, std::string name) {
     Constant *literal = builder->CreateGlobalStringPtr(value, name, 0, module);
-    values[literal->getName().str()] = WrappedVal(WrappedVal::LITERAL, getIntPtrTy(8), literal, builder->GetInsertBlock());
+    values.push_back(WrappedVal(WrappedVal::LITERAL, getIntPtrTy(8), literal, builder->GetInsertBlock()));
     return literal;
 }
 
 WrappedVal &Eisdrache::getWrap(Value *pointer) {
-    for (WrappedVal::Map::value_type &x : values) 
-        if (x.second.value == pointer)
-            return x.second;
+    for (WrappedVal &x : values) 
+        if (x.value == pointer)
+            return x;
+    std::cerr << "tried to load value of '" << pointer->getName().str() << "' from @" << builder->GetInsertBlock()->getParent()->getName().str() << "()\n";
     assert(false && "value not found in WrappedVal::Map Eisdrache::values");
 }
 
 WrappedType &Eisdrache::getWrap(Type *type) {
-    if (!type->isStructTy())
-        assert(false && "type is not a StructType *");
+    if (type->isPointerTy()) {
+        for (WrappedType::Map::value_type &x : types) {
+            if (x.second.type->getPointerTo() == type)
+                return x.second;
+        }
 
-    for (WrappedType::Map::value_type &x : types) 
-        if ((Type *) x.second.type == type)
-            return x.second;
-    
-    assert(false && "struct type not found in WrappedType::Map Eisdrache::types");
+        assert(false && "type ist not a pointer to a struct type");
+    } else if (!type->isStructTy())
+        assert(false && "type is not a StructType *");
+    else {
+        for (WrappedType::Map::value_type &x : types) 
+            if ((Type *) x.second.type == type)
+                return x.second;
+        
+        assert(false && "struct type not found in WrappedType::Map Eisdrache::types");
+    }
 }
 
 Value *Eisdrache::loadValue(Value *pointer, std::string name, bool force) {
@@ -393,11 +411,17 @@ Value *Eisdrache::loadValue(Value *pointer, std::string name, bool force) {
     
     if (force || that.kind == WrappedVal::LOCAL) {
         Value *loaded = builder->CreateLoad(that.type, pointer, name.empty() ? pointer->getName()+"_load_" : name);
-        values[loaded->getName().str()] = WrappedVal(WrappedVal::LOADED, that.type, loaded, builder->GetInsertBlock());
+        values.push_back(WrappedVal(WrappedVal::LOADED, loaded->getType(), loaded, builder->GetInsertBlock()));
         return loaded;
     }
     
     return pointer;
+}
+
+Value *Eisdrache::loadValue(Type *type, Value *pointer, std::string name) {
+    Value *load = builder->CreateLoad(type, pointer, name);
+    values.push_back(WrappedVal(WrappedVal::LOADED, type, load, builder->GetInsertBlock()));
+    return load;
 }
 
 void Eisdrache::setFuture(Value *local, Value *value) { getWrap(local).future = value; }
@@ -407,15 +431,15 @@ bool Eisdrache::isConstant(Value *value) { return isa<Constant>(value); }
 bool Eisdrache::isArgument(Value *value) { return isa<Argument>(value); }
 
 Value *Eisdrache::malloc(Type *type, Value *size, std::string name) { 
-    return call(memoryFunctions.at(type->getPointerTo())["malloc"], {size}, name); 
+    return call(memoryFunctions.at(type)["malloc"], {size}, name); 
 }
 
 void Eisdrache::free(Type *type, Value *value) { 
-    call(memoryFunctions.at(type->getPointerTo())["free"], {value}); 
+    call(memoryFunctions.at(type)["free"], {value}); 
 }
 
 Value *Eisdrache::memcpy(Type *type, Value *dest, Value *source, Value *size, std::string name) { 
-    return call(memoryFunctions.at(type->getPointerTo())["memcpy"], {dest, source, size}, name); 
+    return call(memoryFunctions.at(type)["memcpy"], {dest, source, size}, name); 
 }
 
 void Eisdrache::createMemoryFunctions(Type *type) {

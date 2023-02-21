@@ -132,7 +132,7 @@ EisdracheArray::EisdracheArray(Eisdrache *eisdrache, Type *elementType, std::str
     }, name);
     ptr = self->getPointerTo();
 
-    eisdrache->createMemoryFunctions(eisdrache->getIntTy(8));
+    eisdrache->createMemoryFunctions(elementType);
 
     { // get_buffer
     get_buffer = eisdrache->declare(elementPtr, {ptr}, name+"_get_buffer", true);
@@ -174,7 +174,7 @@ EisdracheArray::EisdracheArray(Eisdrache *eisdrache, Type *elementType, std::str
     llvm::verifyFunction(*set_max_length);
 
     { // get_factor
-    get_factor = eisdrache->declare(eisdrache->getVoidTy(), {ptr}, name+"_get_factor", true);
+    get_factor = eisdrache->declare(eisdrache->getSizeTy(), {ptr}, name+"_get_factor", true);
     Value *factor = eisdrache->getElementVal(get_factor->getArg(0), 3, "factor");
     eisdrache->createRet(factor);
     llvm::verifyFunction(*get_factor);
@@ -189,12 +189,12 @@ EisdracheArray::EisdracheArray(Eisdrache *eisdrache, Type *elementType, std::str
     { // resize
     resize = eisdrache->declare(eisdrache->getVoidTy(), {ptr, eisdrache->getSizeTy()}, name+"_resize", true);
     resize->setCallingConv(CallingConv::Fast);
-    Value *output = eisdrache->malloc(eisdrache->getIntTy(8), resize->getArg(1), "output");
+    Value *output = eisdrache->malloc(elementType, resize->getArg(1), "output");
     Value *buffer_ptr = eisdrache->getElementPtr(resize->getArg(0), 0, "buffer_ptr");  // buffer_ptr is required later
     Value *buffer = eisdrache->loadValue(buffer_ptr, "buffer", true);
     Value *length = this->getLength(resize->getArg(0), "length");
-    eisdrache->memcpy(eisdrache->getIntTy(8), output, buffer, length);
-    eisdrache->free(eisdrache->getIntTy(8), buffer);
+    eisdrache->memcpy(elementType, output, buffer, length);
+    eisdrache->free(elementType, buffer);
     eisdrache->store(output, buffer_ptr);
     setMaxLength(resize->getArg(0), resize->getArg(1));
     eisdrache->createRet();
@@ -240,11 +240,11 @@ EisdracheArray::EisdracheArray(Eisdrache *eisdrache, Type *elementType, std::str
     BasicBlock *free_begin = eisdrache->block(false, "free_begin");
     BasicBlock *free_close = eisdrache->block(false, "free_close");
     Value *buffer = getBuffer(delete_array->getArg(0), "buffer");
-    Value *comp = eisdrache->getBuilder()->CreateICmpNE(buffer, eisdrache->getNullPtr(elementPtr), "comp");
+    Value *comp = eisdrache->binaryOp(Eisdrache::NEQ, buffer, eisdrache->getNullPtr(elementPtr), "comp");
     eisdrache->condJump(comp, free_begin, free_close);
     
     eisdrache->setBlock(free_begin);
-    eisdrache->free(eisdrache->getIntTy(8), buffer);
+    eisdrache->free(elementType, buffer);
     eisdrache->jump(free_close);
     
     eisdrache->setBlock(free_close);

@@ -43,7 +43,7 @@ struct WrappedVal {
         NONE
     };
 
-    typedef std::unordered_map<std::string, WrappedVal> Map;
+    typedef std::vector<WrappedVal> Vec;
 
     WrappedVal(Kind = NONE, Type *type = nullptr, Value *value = nullptr, BasicBlock *parent = nullptr);
     WrappedVal &operator=(const WrappedVal &copy);
@@ -165,6 +165,8 @@ public:
     WrappedType &getWrap(Type *type);
     // load value if pointer is WrappedVal::LOCAL
     Value *loadValue(Value *pointer, std::string name = "", bool force = false);
+    // load value of a given type
+    Value *loadValue(Type *type, Value *pointer, std::string name = "");
     // leave future value for local variable
     void setFuture(Value *local, Value *value);
     // check if a value is a constant value
@@ -191,7 +193,7 @@ private:
     IRBuilder<> *builder;
 
     MemoryFuncMap memoryFunctions = MemoryFuncMap();
-    WrappedVal::Map values;
+    WrappedVal::Vec values;
     WrappedType::Map types;
 };
 
