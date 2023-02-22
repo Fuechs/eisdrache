@@ -49,6 +49,10 @@ public:
      * This struct contains all locals, parameters and blocks 
      * from the wrapped llvm::Function. Can be initialized by the user, 
      * but should be initialized by the Eisdrache Wrapper.
+     * 
+     * @example
+     * Eisdrache::Func &main = eisdrache->declareFunction(eisdrache->getIntTy(), "main",
+     *      {{"argc", eisdrache->getSizeTy()}, {"argv", eisdrache->getIntPtrPtrTy(8)}});
      */
     struct Func {
         typedef std::vector<Func> Vec;
@@ -107,6 +111,10 @@ public:
     PointerType *getIntPtrPtrTy(size_t bit = 64);
     // Type: 16 = half, 32 = float, 64 = double
     Type *getFloatTy(size_t bit = 64);
+    // Type: 16 = half*, 32 = float*, 64 = double*
+    Type *getFloatPtrTy(size_t bit  = 64);   
+    // Type: 16 = half**, 32 = float**, 64 = double**
+    Type *getFloatPtrPtrTy(size_t bit  = 64);
 
     // get the element type of a Value *
     // if instruction is not supported function will assert
@@ -147,12 +155,21 @@ public:
      */
     bool verifyFunc(Func &wrap);
     /**
+     * @brief Call a llvm::Function by its address.
+     * 
+     * @param func Pointer to llvm::Function
+     * @param args (optional) Function call arguments
+     * @param name (optional) Name of the returned value
+     * @return Value * - Value returned from the call.
+     */
+    Value *callFunction(Function *func, ValueVec args = {}, std::string name = "");
+    /**
      * @brief Call a llvm::Function by its wrap.
      * 
      * @param wrap Eisdrache::Func (wrapped llvm::Function) of the callee function
      * @param args (optional) Function call arguments
      * @param name (optional) Name of the returned value
-     * @return Value* - Value returned from the call.
+     * @return Value * - Value returned from the call.
      */
     Value *callFunction(Func &wrap, ValueVec args = {}, std::string name = "");
     /**
@@ -161,7 +178,7 @@ public:
      * @param callee Name of the callee function
      * @param args (optional) Function call arguments
      * @param name (optional) Name of the returned value
-     * @return Value* - Value returned from the call.
+     * @return Value * - Value returned from the call.
      */
     Value *callFunction(std::string callee, ValueVec args = {}, std::string name = "");
 
@@ -177,7 +194,40 @@ public:
      */
     AllocaInst *declareLocal(Type *type, std::string name = "", Value *value = nullptr);
 
+    /// MEMORY ///
+
+    /**
+     * @brief Call TYPE* \@malloc(SIZE); 
+     *      This allocates memory of the given type.
+     * @param type Type to allocate
+     * @param size Amount to allocate
+     * @param name (optional) Name of the returned pointer
+     * @return Value * - Pointer returned from \@malloc().
+     * 
+     */
+    Value *callMalloc(Type *type, Value *size, std::string name = "");
+    Value *callFree(Type *type, Value *value);
+    Value *callMemcpy(Type *type, Value *dest, Value *source, Value *size, std::string name = "");
+
     /// STRUCT TYPES ///
+
+    /// BUILDER ///
+
+    /**
+     * @brief Create a void return instruction.
+     * 
+     * @param next (optional) Next insertion point
+     * @return ReturnInst * - Return Instruction returned from llvm::IRBuilder
+     */
+    ReturnInst *createRet(BasicBlock *next = nullptr);
+    /**
+     * @brief Create a return instruction with a value.
+     * 
+     * @param value Value to return
+     * @param next (optional) Next insertion point
+     * @return ReturnInst * - Return Instruction returned from llvm::IRBuilder
+     */
+    ReturnInst *createRet(Value *value, BasicBlock *next = nullptr);
 
     /// GETTER ///
 
@@ -188,6 +238,7 @@ public:
 
 private:
     typedef std::unordered_map<AllocaInst *, Value *> FutureMap;
+    typedef std::unordered_map<Type *, std::map<std::string, Function *>> MemoryFuncMap;
 
     Eisdrache(LLVMContext *, Module *, IRBuilder<> *, std::string);
 
@@ -199,6 +250,7 @@ private:
 
     Func::Map functions;
     FutureMap futures; // future values to be assigned to locals when they are referenced
+    MemoryFuncMap memoryFunctions;
 };
 
 } // namespace llvm

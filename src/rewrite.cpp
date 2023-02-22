@@ -137,6 +137,8 @@ Type *Eisdrache::getFloatTy(size_t bit) {
         default:    return complain("Invalid amount of bits for floating point type.");
     }
 }
+Type *Eisdrache::getFloatPtrTy(size_t bit) { return PointerType::get(getFloatTy(bit), 0); }
+Type *Eisdrache::getFloatPtrPtrTy(size_t bit) { return PointerType::get(getFloatPtrTy(bit), 0); }
 
 Type *Eisdrache::getElementTy(Value *value) {
     if (isa<AllocaInst>(value)) 
@@ -177,6 +179,10 @@ bool Eisdrache::verifyFunc(Func &wrap) {
     return llvm::verifyFunction(*wrap.func); 
 }
 
+Value *Eisdrache::callFunction(Function *func, ValueVec args, std::string name) {
+    return builder->CreateCall(func, args, name);
+}
+
 Value *Eisdrache::callFunction(Func &wrap, ValueVec args, std::string name) { 
     return builder->CreateCall(wrap.func, args, name); 
 }
@@ -194,7 +200,25 @@ AllocaInst *Eisdrache::declareLocal(Type *type, std::string name, Value *value) 
     return alloca;
 }
 
+/// MEMORY ///
+
 /// STRUCT TYPES ///
+
+/// BUILDER ///
+
+ReturnInst *Eisdrache::createRet(BasicBlock *next) {
+    ReturnInst *inst = builder->CreateRetVoid();
+    if (next)
+        builder->SetInsertPoint(next);
+    return inst;
+}
+
+ReturnInst *Eisdrache::createRet(Value *value, BasicBlock *next) {
+    ReturnInst *inst = builder->CreateRet(value);
+    if (next)
+        builder->SetInsertPoint(next);
+    return inst;
+}
 
 /// GETTER ///
 
