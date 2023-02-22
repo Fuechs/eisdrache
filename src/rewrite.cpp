@@ -18,14 +18,10 @@ namespace llvm {
 Eisdrache::Func::Func() {
     func = nullptr;
     type = nullptr;
-    parameters = ParamVec();
-    blocks = BlockVec();
     locals = LocalVec();
 }
 
 Eisdrache::Func::Func(Module *module, IRBuilder<> *builder, Type *type, std::string name, ParamMap parameters, bool entry) {
-    this->parameters = ParamVec();
-    this->blocks = BlockVec();
     this->locals = LocalVec();
 
     std::vector<std::string> paramNames;
@@ -38,30 +34,21 @@ Eisdrache::Func::Func(Module *module, IRBuilder<> *builder, Type *type, std::str
     FunctionType *FT = FunctionType::get(type, paramTypes, false);
     func = Function::Create(FT, Function::ExternalLinkage, name, *module);
 
-    for (size_t i = 0; i < func->arg_size(); i++)  {
+    for (size_t i = 0; i < func->arg_size(); i++)  
         func->getArg(i)->setName(paramNames[i]);
-        this->parameters.push_back(func->getArg(i));
-    }
 
     if (entry) {
         BasicBlock *entry = BasicBlock::Create(builder->getContext(), "entry", func);
-        blocks.push_back(entry);
         builder->SetInsertPoint(entry);
     } else
         llvm::verifyFunction(*func);
 }
 
-Eisdrache::Func::~Func() {
-    parameters.clear();
-    blocks.clear();
-    locals.clear();
-}
+Eisdrache::Func::~Func() { locals.clear(); }
 
 Eisdrache::Func &Eisdrache::Func::operator=(const Func &copy) {
     func = copy.func;
     type = copy.type;
-    parameters = copy.parameters;
-    blocks = copy.blocks;
     locals = copy.locals;
     return *this;
 }
@@ -71,9 +58,9 @@ bool Eisdrache::Func::operator==(const Function *comp) const { return func == co
 
 Type *Eisdrache::Func::operator[](Value *local) {
     if (isa<Argument>(local)) {
-        for (Argument *&arg : parameters)
-            if (arg == local) 
-                return arg->getType();
+        for (Argument &arg : func->args())
+            if (&arg == local) 
+                return arg.getType();
         Eisdrache::complain("Eisdrache::Func::operator[](): Argument (Value) is not an existing Argument.");
     } else if (isa<AllocaInst>(local)) {
         for (AllocaInst *&alloca : locals)
@@ -85,9 +72,33 @@ Type *Eisdrache::Func::operator[](Value *local) {
     return Eisdrache::complain("Eisdrache::Func::operator[](): Value is not a Argument or AllocaInst");
 }
 
-Argument *Eisdrache::Func::arg(size_t index) { return parameters.at(index); }
+Argument *Eisdrache::Func::arg(size_t index) { return func->getArg(index); }
 
-/// EISDRACHE WRAPPER ///
+/// EISDRACHE STRUCT ///
+
+Eisdrache::Struct::Struct() {
+    type = nullptr;
+    ptr = nullptr;
+}
+
+Eisdrache::Struct::Struct(Module *module, IRBuilder<> *builder, std::string name, TypeVec elements) {
+    this->type = StructType::create(elements, name);
+    this->ptr = PointerType::get(type, 0);
+}
+
+Eisdrache::Struct::~Struct() {}
+
+Eisdrache::Struct &Eisdrache::Struct::operator=(const Struct &copy) {
+    type = copy.type;
+    ptr = copy.ptr;
+    return *this;
+}
+
+bool Eisdrache::Struct::operator==(const Struct &comp) const { return type == comp.type; }
+bool Eisdrache::Struct::operator==(const Type *comp) const { return type == comp; }
+Type *Eisdrache::Struct::operator[](size_t index) { return type->getElementType(index); }
+
+/// EISDRACHE WRAPPER ///w
 
 Eisdrache::~Eisdrache() {
     delete builder;
@@ -161,6 +172,14 @@ ConstantFP *Eisdrache::getFloat(double value) { return ConstantFP::get(*context,
 Constant *Eisdrache::getLiteral(std::string value, std::string name) { return builder->CreateGlobalStringPtr(value, name); }
 
 /// FUNCTIONS ///
+
+Eisdrache::Func &Eisdrache::declareFunction(Type *type, std::string name, TypeVec parameters) {
+    Func::ParamMap parsedParams = Func::ParamMap();
+    for (Type *&param : parameters)
+        parsedParams[std::to_string(parsedParams.size())] = param;
+    functions[name] = Func(module, builder, type, name, parsedParams);
+    return functions.at(name);
+}
 
 Eisdrache::Func &Eisdrache::declareFunction(Type *type, std::string name, Func::ParamMap parameters, bool entry) {
     functions[name] = Func(module, builder, type, name, parameters, entry);

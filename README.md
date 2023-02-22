@@ -20,8 +20,7 @@ int main(void) {
     Eisdrache *eisdrache = Eisdrache::create("test compiler");
     
     // i64 @puts(i8* nocapture %buffer)
-    Eisdrache::Func &puts = eisdrache->declareFunction(eisdrache->getIntTy(), "puts", 
-        {{"buffer", eisdrache->getIntPtrTy(8)}});
+    Eisdrache::Func &puts = eisdrache->declareFunction(eisdrache->getIntTy(), "puts", {eisdrache->getIntPtrTy(8)});
     puts.arg(0)->addAttr(Attribute::NoCapture);
     
     // i64 @main(i64 %argc, i8** %argv)
@@ -32,7 +31,7 @@ int main(void) {
     // %0 = call i64 @puts(ptr @literal)
     eisdrache->callFunction(puts, {literal});
     // ret %argc
-    eisdrache->getBuilder()->CreateRet(main.arg(0));
+    eisdrache->createRet(main.arg(0));
     eisdrache->verifyFunc(main);
 
     eisdrache->dump();

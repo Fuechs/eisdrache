@@ -42,6 +42,7 @@ namespace llvm {
 class Eisdrache {
 public:
     typedef std::vector<Value *> ValueVec;
+    typedef std::vector<Type *> TypeVec;
 
     /**
      * @brief Wrapper for llvm::Function.
@@ -58,7 +59,6 @@ public:
         typedef std::vector<Func> Vec;
         typedef std::unordered_map<std::string, Func> Map; 
         typedef std::map<std::string, Type *> ParamMap;
-        typedef std::vector<Argument *> ParamVec;
         typedef std::vector<BasicBlock *> BlockVec;
         typedef std::vector<AllocaInst *> LocalVec;
 
@@ -77,9 +77,31 @@ public:
 
         Function *func;
         Type *type;
-        ParamVec parameters;
-        BlockVec blocks;
         LocalVec locals;
+    };
+
+    /**
+     * @brief Wrapper for llvm::StructType
+     * 
+     * This struct contains the struct type itself and all types of its elements. 
+     * Can be initialized by the user, but should be initialized by the Eisdrache Wrapper.
+     * 
+     */
+    struct Struct {
+        typedef std::vector<Struct> Vec;
+
+        Struct();
+        Struct(Module *module, IRBuilder<> *builder, std::string name, TypeVec elements);
+        ~Struct();
+
+        Struct &operator=(const Struct &copy);
+        bool operator==(const Struct &comp) const;
+        bool operator==(const Type *comp) const;
+        // get type of an element at an index
+        Type *operator[](size_t index);
+
+        StructType *type;
+        PointerType *ptr;
     };
 
     ~Eisdrache();
@@ -129,6 +151,15 @@ public:
 
     /// FUNCTIONS ///
     
+    /**
+     * @brief Declare a llvm::Function without parameters names.
+     * 
+     * @param type return type of the function
+     * @param name name of the function
+     * @param parameters parameters of the function 
+     * @return Func & - Eisdrache::Func (wrapped llvm::Function)
+     */
+    Func &declareFunction(Type *type, std::string name, TypeVec parameters);
     /**
      * @brief Declare a llvm::Function.
      * 
