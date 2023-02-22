@@ -74,6 +74,8 @@ public:
 
         // get argument at index
         Argument *arg(size_t index);
+        // call this function; should be called the Eisdrache Wrapper
+        Value *call(IRBuilder<> *builder, ValueVec args = {}, std::string name = "");
 
         Function *func;
         Type *type;
@@ -89,6 +91,7 @@ public:
      */
     struct Struct {
         typedef std::vector<Struct> Vec;
+        typedef std::unordered_map<std::string, Struct> Map;
 
         Struct();
         Struct(Module *module, IRBuilder<> *builder, std::string name, TypeVec elements);
@@ -99,6 +102,9 @@ public:
         bool operator==(const Type *comp) const;
         // get type of an element at an index
         Type *operator[](size_t index);
+
+        // allocate object of this type, should be called by the Eisdrache Wrapper 
+        AllocaInst *allocate(IRBuilder<> *builder, std::string name = "");
 
         StructType *type;
         PointerType *ptr;
@@ -230,6 +236,7 @@ public:
     /**
      * @brief Call TYPE* \@malloc(SIZE); 
      *      This allocates memory of the given type.
+     *      TODO: Implement this function.
      * @param type Type to allocate
      * @param size Amount to allocate
      * @param name (optional) Name of the returned pointer
@@ -237,10 +244,40 @@ public:
      * 
      */
     Value *callMalloc(Type *type, Value *size, std::string name = "");
-    Value *callFree(Type *type, Value *value);
+    // TODO: Implement this function.
+    void callFree(Type *type, Value *pointer);
+    // TODO: Implement this function.
     Value *callMemcpy(Type *type, Value *dest, Value *source, Value *size, std::string name = "");
 
     /// STRUCT TYPES ///
+
+    /**
+     * @brief Declare a struct type.
+     * 
+     * @param name Name of the struct type
+     * @param elements Types of the elements of the struct type
+     * @return Struct & - Eisdrache::Struct (wrapped llvm::StructType) 
+     */
+    Struct &declareStruct(std::string name, TypeVec elements);
+
+    /**
+     * @brief Allocate object of struct type.
+     *      Automatically appends to Eisdrache::Func::locals.
+     * 
+     * @param wrap Wrapped llvm::StructType
+     * @param name Name of the returned pointer
+     * @return AllocaInst * - Alloca Instruction returned from llvm::IRBuilder 
+     */
+    AllocaInst *allocateStruct(Struct &wrap, std::string name = "");
+    /**
+     * @brief Allocate object of struct type.
+     *      Automatically appends to Eisdrache::Func::locals.
+     * 
+     * @param typeName Name of the struct type.
+     * @param name Name of the returned pointer
+     * @return AllocaInst * - Alloca Instruction returned from llvm::IRBuilder 
+     */
+    AllocaInst *allocateStruct(std::string typeName, std::string name = "");
 
     /// BUILDER ///
 
@@ -262,8 +299,23 @@ public:
 
     /// GETTER ///
 
+    /**
+     * @brief Get the llvm::LLVMContext
+     * 
+     * @return LLVMContext * 
+     */
     LLVMContext *getContext();
+    /**
+     * @brief Get the llvm::Module
+     * 
+     * @return Module * 
+     */
     Module *getModule();
+    /**
+     * @brief Get the llvm::IRBuilder
+     * 
+     * @return IRBuilder<> * 
+     */
     IRBuilder<> *getBuilder();
 
 
@@ -280,6 +332,7 @@ private:
     IRBuilder<> *builder;
 
     Func::Map functions;
+    Struct::Map structs;
     FutureMap futures; // future values to be assigned to locals when they are referenced
     MemoryFuncMap memoryFunctions;
 };

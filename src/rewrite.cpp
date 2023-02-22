@@ -74,6 +74,10 @@ Type *Eisdrache::Func::operator[](Value *local) {
 
 Argument *Eisdrache::Func::arg(size_t index) { return func->getArg(index); }
 
+Value *Eisdrache::Func::call(IRBuilder<> *builder, ValueVec args, std::string name) { 
+    return builder->CreateCall(func, args, name); 
+}
+
 /// EISDRACHE STRUCT ///
 
 Eisdrache::Struct::Struct() {
@@ -97,6 +101,10 @@ Eisdrache::Struct &Eisdrache::Struct::operator=(const Struct &copy) {
 bool Eisdrache::Struct::operator==(const Struct &comp) const { return type == comp.type; }
 bool Eisdrache::Struct::operator==(const Type *comp) const { return type == comp; }
 Type *Eisdrache::Struct::operator[](size_t index) { return type->getElementType(index); }
+
+AllocaInst *Eisdrache::Struct::allocate(IRBuilder<> *builder, std::string name) {
+    return builder->CreateAlloca(type, nullptr, name);
+} 
 
 /// EISDRACHE WRAPPER ///w
 
@@ -137,6 +145,7 @@ void Eisdrache::dump(raw_fd_ostream &os) { module->print(os, nullptr); }
 
 Type *Eisdrache::getVoidTy() { return builder->getVoidTy(); }
 IntegerType *Eisdrache::getBoolTy() { return builder->getInt1Ty(); }
+IntegerType *Eisdrache::getSizeTy() { return builder->getInt64Ty(); }
 IntegerType *Eisdrache::getIntTy(size_t bit) { return builder->getIntNTy(bit); }
 PointerType *Eisdrache::getIntPtrTy(size_t bit) { return Type::getIntNPtrTy(*context, bit); }
 PointerType *Eisdrache::getIntPtrPtrTy(size_t bit) { return PointerType::get(getIntPtrTy(bit), 0); }
@@ -203,11 +212,11 @@ Value *Eisdrache::callFunction(Function *func, ValueVec args, std::string name) 
 }
 
 Value *Eisdrache::callFunction(Func &wrap, ValueVec args, std::string name) { 
-    return builder->CreateCall(wrap.func, args, name); 
+    return wrap.call(builder, args, name);
 }
 
 Value *Eisdrache::callFunction(std::string callee, ValueVec args, std::string name) { 
-    return builder->CreateCall(functions.at(callee).func, args, name); 
+    return functions.at(callee).call(builder, args, name);
 }
  
 /// LOCALS ///
@@ -221,7 +230,29 @@ AllocaInst *Eisdrache::declareLocal(Type *type, std::string name, Value *value) 
 
 /// MEMORY ///
 
+Value *Eisdrache::callMalloc(Type *type, Value *size, std::string name) { return nullptr; }
+void Eisdrache::callFree(Type *type, Value *pointer) { return; }
+Value *Eisdrache::callMemcpy(Type *type, Value *dest, Value *source, Value *size, std::string name) { return nullptr; }
+
+
 /// STRUCT TYPES ///
+
+Eisdrache::Struct &Eisdrache::declareStruct(std::string name, TypeVec elements) {
+    structs[name] = Struct(module, builder, name, elements);
+    return structs.at(name);
+}
+
+AllocaInst *Eisdrache::allocateStruct(Struct &wrap, std::string name) {
+    AllocaInst *alloca = wrap.allocate(builder, name);
+    getWrap(builder->GetInsertBlock()->getParent()).locals.push_back(alloca);
+    return alloca;
+}
+
+AllocaInst *Eisdrache::allocateStruct(std::string typeName, std::string name) {
+    AllocaInst *alloca = structs.at(typeName).allocate(builder, name);
+    getWrap(builder->GetInsertBlock()->getParent()).locals.push_back(alloca);
+    return alloca;
+}
 
 /// BUILDER ///
 
@@ -252,7 +283,9 @@ Eisdrache::Eisdrache(LLVMContext *context, Module *module, IRBuilder<> *builder,
     this->module = module;
     this->builder = builder;
     functions = Func::Map();
+    structs = Struct::Map();
     futures = FutureMap();
+    memoryFunctions = MemoryFuncMap();
 
     TargetOptions targetOptions = TargetOptions();
     targetOptions.FloatABIType = FloatABI::Hard;
