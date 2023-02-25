@@ -75,11 +75,13 @@ public:
         // get argument at index
         Argument *arg(size_t index);
         // call this function; should be called the Eisdrache Wrapper
-        Value *call(IRBuilder<> *builder, ValueVec args = {}, std::string name = "");
+        Value *call(ValueVec args = {}, std::string name = "");
 
         Function *func;
         Type *type;
         LocalVec locals;
+
+        IRBuilder<> *builder;
     };
 
     /**
@@ -94,7 +96,7 @@ public:
         typedef std::unordered_map<std::string, Struct> Map;
 
         Struct();
-        Struct(Module *module, IRBuilder<> *builder, std::string name, TypeVec elements);
+        Struct(IRBuilder<> *builder, std::string name, TypeVec elements);
         ~Struct();
 
         Struct &operator=(const Struct &copy);
@@ -104,10 +106,12 @@ public:
         Type *operator[](size_t index);
 
         // allocate object of this type, should be called by the Eisdrache Wrapper 
-        AllocaInst *allocate(IRBuilder<> *builder, std::string name = "");
+        AllocaInst *allocate(std::string name = "");
 
         StructType *type;
         PointerType *ptr;
+
+        IRBuilder<> *builder;
     };
 
     ~Eisdrache();
@@ -321,7 +325,6 @@ public:
 
 private:
     typedef std::unordered_map<AllocaInst *, Value *> FutureMap;
-    typedef std::unordered_map<Type *, std::map<std::string, Function *>> MemoryFuncMap;
 
     Eisdrache(LLVMContext *, Module *, IRBuilder<> *, std::string);
 
@@ -334,7 +337,6 @@ private:
     Func::Map functions;
     Struct::Map structs;
     FutureMap futures; // future values to be assigned to locals when they are referenced
-    MemoryFuncMap memoryFunctions;
 };
 
 } // namespace llvm

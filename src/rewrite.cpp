@@ -19,9 +19,11 @@ Eisdrache::Func::Func() {
     func = nullptr;
     type = nullptr;
     locals = LocalVec();
+    builder = nullptr;
 }
 
 Eisdrache::Func::Func(Module *module, IRBuilder<> *builder, Type *type, std::string name, ParamMap parameters, bool entry) {
+    this->builder = builder;
     this->locals = LocalVec();
 
     std::vector<std::string> paramNames;
@@ -50,6 +52,7 @@ Eisdrache::Func &Eisdrache::Func::operator=(const Func &copy) {
     func = copy.func;
     type = copy.type;
     locals = copy.locals;
+    builder = copy.builder;
     return *this;
 }
 
@@ -74,7 +77,7 @@ Type *Eisdrache::Func::operator[](Value *local) {
 
 Argument *Eisdrache::Func::arg(size_t index) { return func->getArg(index); }
 
-Value *Eisdrache::Func::call(IRBuilder<> *builder, ValueVec args, std::string name) { 
+Value *Eisdrache::Func::call(ValueVec args, std::string name) { 
     return builder->CreateCall(func, args, name); 
 }
 
@@ -85,7 +88,8 @@ Eisdrache::Struct::Struct() {
     ptr = nullptr;
 }
 
-Eisdrache::Struct::Struct(Module *module, IRBuilder<> *builder, std::string name, TypeVec elements) {
+Eisdrache::Struct::Struct(IRBuilder<> *builder, std::string name, TypeVec elements) {
+    this->builder = builder;
     this->type = StructType::create(elements, name);
     this->ptr = PointerType::get(type, 0);
 }
@@ -95,6 +99,7 @@ Eisdrache::Struct::~Struct() {}
 Eisdrache::Struct &Eisdrache::Struct::operator=(const Struct &copy) {
     type = copy.type;
     ptr = copy.ptr;
+    builder = copy.builder;
     return *this;
 }
 
@@ -102,7 +107,7 @@ bool Eisdrache::Struct::operator==(const Struct &comp) const { return type == co
 bool Eisdrache::Struct::operator==(const Type *comp) const { return type == comp; }
 Type *Eisdrache::Struct::operator[](size_t index) { return type->getElementType(index); }
 
-AllocaInst *Eisdrache::Struct::allocate(IRBuilder<> *builder, std::string name) {
+AllocaInst *Eisdrache::Struct::allocate(std::string name) {
     return builder->CreateAlloca(type, nullptr, name);
 } 
 
@@ -212,11 +217,11 @@ Value *Eisdrache::callFunction(Function *func, ValueVec args, std::string name) 
 }
 
 Value *Eisdrache::callFunction(Func &wrap, ValueVec args, std::string name) { 
-    return wrap.call(builder, args, name);
+    return wrap.call(args, name);
 }
 
 Value *Eisdrache::callFunction(std::string callee, ValueVec args, std::string name) { 
-    return functions.at(callee).call(builder, args, name);
+    return functions.at(callee).call(args, name);
 }
  
 /// LOCALS ///
@@ -238,18 +243,18 @@ Value *Eisdrache::callMemcpy(Type *type, Value *dest, Value *source, Value *size
 /// STRUCT TYPES ///
 
 Eisdrache::Struct &Eisdrache::declareStruct(std::string name, TypeVec elements) {
-    structs[name] = Struct(module, builder, name, elements);
+    structs[name] = Struct(builder, name, elements);
     return structs.at(name);
 }
 
 AllocaInst *Eisdrache::allocateStruct(Struct &wrap, std::string name) {
-    AllocaInst *alloca = wrap.allocate(builder, name);
+    AllocaInst *alloca = wrap.allocate(name);
     getWrap(builder->GetInsertBlock()->getParent()).locals.push_back(alloca);
     return alloca;
 }
 
 AllocaInst *Eisdrache::allocateStruct(std::string typeName, std::string name) {
-    AllocaInst *alloca = structs.at(typeName).allocate(builder, name);
+    AllocaInst *alloca = structs.at(typeName).allocate(name);
     getWrap(builder->GetInsertBlock()->getParent()).locals.push_back(alloca);
     return alloca;
 }
@@ -285,7 +290,6 @@ Eisdrache::Eisdrache(LLVMContext *context, Module *module, IRBuilder<> *builder,
     functions = Func::Map();
     structs = Struct::Map();
     futures = FutureMap();
-    memoryFunctions = MemoryFuncMap();
 
     TargetOptions targetOptions = TargetOptions();
     targetOptions.FloatABIType = FloatABI::Hard;

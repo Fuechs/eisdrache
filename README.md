@@ -29,11 +29,11 @@ int main(void) {
     // @literal = private unnamed_addr constant [14 x i8] c"Hello World!\0A\00"
     Constant *literal = eisdrache->getLiteral("Hello World!\n", "literal");
     // %0 = call i64 @puts(ptr @literal)
-    eisdrache->callFunction(puts, {literal});
-    // ret %argc
-    eisdrache->createRet(main.arg(0));
+    puts.call({literal});
+    // ret i64 0
+    eisdrache->createRet(eisdrache->getInt(64, 0));
     eisdrache->verifyFunc(main);
-
+    
     eisdrache->dump();
     return 0;
 }
