@@ -47,7 +47,7 @@ public:
     /**
      * @brief Wrapper for llvm::Function.
      * 
-     * This struct contains all locals, parameters and blocks 
+     * This class contains all locals, parameters and blocks 
      * from the wrapped llvm::Function. Can be initialized by the user, 
      * but should be initialized by the Eisdrache Wrapper.
      * 
@@ -55,7 +55,8 @@ public:
      * Eisdrache::Func &main = eisdrache->declareFunction(eisdrache->getIntTy(), "main",
      *      {{"argc", eisdrache->getSizeTy()}, {"argv", eisdrache->getIntPtrPtrTy(8)}});
      */
-    struct Func {
+    class Func {
+    public:
         typedef std::vector<Func> Vec;
         typedef std::unordered_map<std::string, Func> Map; 
         typedef std::map<std::string, Type *> ParamMap;
@@ -63,7 +64,7 @@ public:
         typedef std::vector<AllocaInst *> LocalVec;
 
         Func();
-        Func(Module *module, IRBuilder<> *builder, Type *type, std::string name, ParamMap parameters, bool entry = false);
+        Func(Eisdrache *eisdrache, Type *type, std::string name, ParamMap parameters, bool entry = false);
         ~Func();
 
         Func &operator=(const Func &copy);
@@ -71,32 +72,40 @@ public:
         bool operator==(const Function *comp) const;
         // get type of a local / parameter
         Type *operator[](Value *local);
+        // get the wrapped llvm::Function
+        Function *operator*();
 
         // get argument at index
         Argument *arg(size_t index);
         // call this function; should be called the Eisdrache Wrapper
         Value *call(ValueVec args = {}, std::string name = "");
+        // add a local variable to this function
+        void addLocal(AllocaInst *local);
 
+    private:
         Function *func;
         Type *type;
         LocalVec locals;
 
-        IRBuilder<> *builder;
+        Eisdrache *eisdrache;
     };
 
     /**
      * @brief Wrapper for llvm::StructType
      * 
-     * This struct contains the struct type itself and all types of its elements. 
+     * This class contains the struct type itself and all types of its elements. 
      * Can be initialized by the user, but should be initialized by the Eisdrache Wrapper.
      * 
+     * @example
+     * Eisdrache::Struct &array = eisdrache->declareStruct("array", {eisdrache->getIntPtrTy(), eisdrache->getSizeTy()});
      */
-    struct Struct {
+    class Struct {
+    public:
         typedef std::vector<Struct> Vec;
         typedef std::unordered_map<std::string, Struct> Map;
 
         Struct();
-        Struct(IRBuilder<> *builder, std::string name, TypeVec elements);
+        Struct(Eisdrache *eisdrache, std::string name, TypeVec elements);
         ~Struct();
 
         Struct &operator=(const Struct &copy);
@@ -104,14 +113,19 @@ public:
         bool operator==(const Type *comp) const;
         // get type of an element at an index
         Type *operator[](size_t index);
-
+        // get the wrapped llvm::StructType
+        StructType *operator*();
+        
         // allocate object of this type, should be called by the Eisdrache Wrapper 
         AllocaInst *allocate(std::string name = "");
+        // get the pointer to this type
+        PointerType *getPtr();
 
+    private:
         StructType *type;
         PointerType *ptr;
 
-        IRBuilder<> *builder;
+        Eisdrache *eisdrache;
     };
 
     ~Eisdrache();
@@ -235,23 +249,14 @@ public:
      */
     AllocaInst *declareLocal(Type *type, std::string name = "", Value *value = nullptr);
 
-    /// MEMORY ///
-
     /**
-     * @brief Call TYPE* \@malloc(SIZE); 
-     *      This allocates memory of the given type.
-     *      TODO: Implement this function.
-     * @param type Type to allocate
-     * @param size Amount to allocate
-     * @param name (optional) Name of the returned pointer
-     * @return Value * - Pointer returned from \@malloc().
+     * @brief Load the value of a local variable.
      * 
+     * @param local Pointer to the local.
+     * @param name (optional) Name of the loaded value.
+     * @return Value * - The loaded value. 
      */
-    Value *callMalloc(Type *type, Value *size, std::string name = "");
-    // TODO: Implement this function.
-    void callFree(Type *type, Value *pointer);
-    // TODO: Implement this function.
-    Value *callMemcpy(Type *type, Value *dest, Value *source, Value *size, std::string name = "");
+    Value *loadLocal(Value *local, std::string name = "");
 
     /// STRUCT TYPES ///
 
@@ -300,6 +305,12 @@ public:
      * @return ReturnInst * - Return Instruction returned from llvm::IRBuilder
      */
     ReturnInst *createRet(Value *value, BasicBlock *next = nullptr);
+    /**
+     * @brief Set the current insertion block.
+     * 
+     * @param block The insertion block
+     */
+    void setBlock(BasicBlock *block);
 
     /// GETTER ///
 
@@ -321,6 +332,12 @@ public:
      * @return IRBuilder<> * 
      */
     IRBuilder<> *getBuilder();
+    /**
+     * @brief Get the current wrapped parent llvm::Function
+     * 
+     * @return Func & 
+     */
+    Func &getCurrentParent();
 
 
 private:
@@ -333,6 +350,8 @@ private:
     LLVMContext *context;
     Module *module;
     IRBuilder<> *builder;
+
+    Func *parent; // current parent function
 
     Func::Map functions;
     Struct::Map structs;

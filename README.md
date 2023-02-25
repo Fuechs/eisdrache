@@ -13,7 +13,10 @@
 ###### Hello World
 
 ```cpp
+// main.cpp
 #include "eisdrache.hpp"
+
+using namespace llvm;
 
 int main(void) {
     Eisdrache::initialize();
@@ -34,6 +37,35 @@ int main(void) {
     eisdrache->createRet(eisdrache->getInt(64, 0));
     eisdrache->verifyFunc(main);
     
+    eisdrache->dump();
+    return 0;
+}
+```
+
+###### Local Variables 
+
+```cpp
+// main.cpp
+#include "eisdrache.hpp"
+
+using namespace llvm;
+
+int main(void) {
+    Eisdrache::initialize();
+    Eisdrache *eisdrache = Eisdrache::create("test compiler");    
+        
+    // i64 @main(i64 %argc, i8** %argv)
+    Eisdrache::Func &main = eisdrache->declareFunction(eisdrache->getIntTy(), "main", 
+        {{"argc", eisdrache->getIntTy()}, {"argv", eisdrache->getIntPtrPtrTy(8)}}, true);
+    // %var = alloca i64
+    Value *var = eisdrache->declareLocal(eisdrache->getIntTy(), "var", eisdrache->getInt(64, 3));
+    // store i64 3, ptr %var ; (future value assigned from declaration)
+    // %var_load = load i64, ptr %var
+    Value *load = eisdrache->loadLocal(var, "var_load");
+    // ret i64 %var_load
+    eisdrache->createRet(load);
+    eisdrache->verifyFunc(main);
+
     eisdrache->dump();
     return 0;
 }
