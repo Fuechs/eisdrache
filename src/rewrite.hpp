@@ -43,6 +43,43 @@ class Eisdrache {
 public:
     typedef std::vector<Value *> ValueVec;
     typedef std::vector<Type *> TypeVec;
+    typedef std::vector<Instruction *> InstVec;
+
+    /**
+     * @brief Wrapper for llvm::Value | llvm::AllocaInst;
+     * 
+     * This class contains 
+     * * the value itself,
+     * * wether the (integer) value is signed,
+     * * wether the value is a llvm::AllocaInst,
+     * * and the value to be assigned once the value is referenced. 
+     * (Relevant for llvm::AllocaInst)
+     */
+    class Local { // TODO: use this wrapper
+    public:
+        typedef std::vector<Local> Vec;
+
+        Local(Value *ptr = nullptr, Value *future = nullptr, bool _signed = false);
+        
+        Local &operator=(const Local &copy);
+        bool operator==(const Local &comp) const;
+        bool operator==(const Value *comp) const;
+        AllocaInst *operator*();
+
+        AllocaInst *getAllocaPtr();
+        Value *getValuePtr();
+        bool isAlloca();
+        bool isSigned();
+        void invokeFuture();
+
+    private:
+        union {
+            Value *v_ptr;
+            AllocaInst *a_ptr;
+        };
+        bool _signed;
+        Value *future;
+    };
 
     /**
      * @brief Wrapper for llvm::Function.

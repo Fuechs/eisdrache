@@ -13,6 +13,35 @@
 
 namespace llvm {
 
+/// EISDRACHE LOCAL ///
+
+Eisdrache::Local::Local(Value *ptr, Value *future , bool _signed)
+: v_ptr(ptr), future(future), _signed(_signed) {}
+
+Eisdrache::Local& Eisdrache::Local::operator=(const Local &copy) {
+    v_ptr = copy.v_ptr;
+    _signed = copy._signed;
+    future = copy.future;
+}
+
+bool Eisdrache::Local::operator==(const Local &comp) const { return v_ptr == comp.v_ptr; }
+
+bool Eisdrache::Local::operator==(const Value *comp) const { return v_ptr == comp; }
+
+AllocaInst *Eisdrache::Local::operator*() {
+    if (!isAlloca())
+        return complain("Eisdrache::Local::operator*(): Tried to get AllocaInst * of Value * ('"+v_ptr->getName().str()+"').");
+    return a_ptr;
+}
+
+AllocaInst *Eisdrache::Local::getAllocaPtr() { return operator*(); }
+
+Value *Eisdrache::Local::getValuePtr() { return v_ptr; }
+
+bool Eisdrache::Local::isAlloca() { return isa<AllocaInst>(v_ptr); }
+
+bool Eisdrache::Local::isSigned() { return _signed; }
+
 /// EISDRACHE FUNC ///
 
 Eisdrache::Func::Func() {
