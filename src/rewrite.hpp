@@ -55,7 +55,7 @@ public:
      * * and the value to be assigned once the value is referenced. 
      * (Relevant for llvm::AllocaInst)
      */
-    class Local { // TODO: use this wrapper
+    class Local {
     public:
         typedef std::vector<Local> Vec;
 
@@ -98,7 +98,6 @@ public:
         typedef std::unordered_map<std::string, Func> Map; 
         typedef std::map<std::string, Type *> ParamMap;
         typedef std::vector<BasicBlock *> BlockVec;
-        typedef std::vector<AllocaInst *> LocalVec;
 
         Func();
         Func(Eisdrache *eisdrache, Type *type, std::string name, ParamMap parameters, bool entry = false);
@@ -114,15 +113,16 @@ public:
 
         // get argument at index
         Argument *arg(size_t index);
-        // call this function; should be called the Eisdrache Wrapper
+        // call this function
         Value *call(ValueVec args = {}, std::string name = "");
         // add a local variable to this function
-        void addLocal(AllocaInst *local);
+        // and return reference to copy of local
+        Local &addLocal(Local local);
 
     private:
         Function *func;
         Type *type;
-        LocalVec locals;
+        Local::Vec locals;
 
         Eisdrache *eisdrache;
     };
@@ -282,9 +282,9 @@ public:
      * @param type Type to allocate
      * @param name (optional) Name of the AllocaInst *
      * @param value (optional) Future value to be assigned to local variable
-     * @return AllocaInst * - Allocate Instruction returned from llvm::IRBuilder
+     * @return Local & - Wrapped alloca instruction
      */
-    AllocaInst *declareLocal(Type *type, std::string name = "", Value *value = nullptr);
+    Local &declareLocal(Type *type, std::string name = "", Value *value = nullptr);
 
     /**
      * @brief Load the value of a local variable.

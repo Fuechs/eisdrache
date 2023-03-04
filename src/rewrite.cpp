@@ -22,6 +22,7 @@ Eisdrache::Local& Eisdrache::Local::operator=(const Local &copy) {
     v_ptr = copy.v_ptr;
     _signed = copy._signed;
     future = copy.future;
+    return *this;
 }
 
 bool Eisdrache::Local::operator==(const Local &comp) const { return v_ptr == comp.v_ptr; }
@@ -47,13 +48,13 @@ bool Eisdrache::Local::isSigned() { return _signed; }
 Eisdrache::Func::Func() {
     func = nullptr;
     type = nullptr;
-    locals = LocalVec();
+    locals = Local::Vec();
     eisdrache = nullptr;
 }
 
 Eisdrache::Func::Func(Eisdrache *eisdrache, Type *type, std::string name, ParamMap parameters, bool entry) {
     this->eisdrache = eisdrache;
-    this->locals = LocalVec();
+    this->locals = Local::Vec();
 
     std::vector<std::string> paramNames;
     std::vector<Type *> paramTypes;
@@ -96,9 +97,9 @@ Type *Eisdrache::Func::operator[](Value *local) {
                 return arg.getType();
         Eisdrache::complain("Eisdrache::Func::operator[](): Argument (Value) is not an existing Argument.");
     } else if (isa<AllocaInst>(local)) {
-        for (AllocaInst *&alloca : locals)
+        for (Local &alloca : locals)
             if (alloca == local)
-                return alloca->getAllocatedType();
+                return (*alloca)->getAllocatedType();
         Eisdrache::complain("Eisdrache::Func::operator[](): AllocaInst (Value) is not an existing local.");
     }  
     
@@ -113,7 +114,10 @@ Value *Eisdrache::Func::call(ValueVec args, std::string name) {
     return eisdrache->callFunction(func, args, name); 
 }
 
-void Eisdrache::Func::addLocal(AllocaInst *local) { locals.push_back(local); }
+Eisdrache::Local &Eisdrache::Func::addLocal(Local local) { 
+    locals.push_back(local); 
+    return locals.back();
+}
 
 /// EISDRACHE STRUCT ///
 
@@ -280,11 +284,9 @@ Value *Eisdrache::callFunction(std::string callee, ValueVec args, std::string na
  
 /// LOCALS ///
 
-AllocaInst *Eisdrache::declareLocal(Type *type, std::string name, Value *value) {
+Eisdrache::Local &Eisdrache::declareLocal(Type *type, std::string name, Value *value) {
     AllocaInst *alloca = builder->CreateAlloca(type, nullptr, name);
-    futures[alloca] = value;
-    parent->addLocal(alloca);
-    return alloca;
+    return parent->addLocal(Local(alloca, value)); // TODO: signed values
 }
 
 Value *Eisdrache::loadLocal(Value *local, std::string name) {
