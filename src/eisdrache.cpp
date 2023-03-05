@@ -13,68 +13,211 @@
 
 namespace llvm {
 
-WrappedVal::WrappedVal(Kind kind, Type *type, Value *value, BasicBlock *parent) 
-: kind(kind), type(type), value(value), future(nullptr), parent(parent) {}
+/// EISDRACHE TY ///
 
-WrappedVal &WrappedVal::operator=(const WrappedVal &copy) {
-    kind = copy.kind;
-    type = copy.type;
-    value = copy.value;
-    future = copy.future;
-    parent = copy.parent;
+Eisdrache::Ty::Ty(Eisdrache *eisdrache, size_t bit, size_t ptrDepth, bool isFloat, bool isSigned)
+: eisdrache(eisdrache), bit(bit), ptrDepth(ptrDepth), isFloat(isFloat), isSigned(isSigned) {}
+
+Eisdrache::Ty &Eisdrache::Ty::operator=(const Ty &copy) {
+    bit = copy.bit;
+    ptrDepth = copy.ptrDepth;
+    isFloat = copy.isFloat;
+    isSigned = copy.isSigned;
+    eisdrache = copy.eisdrache;
     return *this;
 }
 
-WrappedType::WrappedType(StructType *structType, std::vector<Type *> elementTypes) 
-: type(structType), elementTypes(elementTypes) {}
-
-WrappedType &WrappedType::operator=(const WrappedType &copy) {
-    type = copy.type;
-    elementTypes = copy.elementTypes;
-    return *this;
+bool Eisdrache::Ty::operator==(const Ty &comp) {
+    return (bit == comp.bit 
+        && ptrDepth == comp.ptrDepth 
+        && isFloat == comp.isFloat);
 }
 
-Type *WrappedType::operator[](int64_t index) {
-    if (index < 0) 
-        return type;
-    return elementTypes[index];
+bool Eisdrache::Ty::operator==(const Type *comp) {
+    return (bit == comp->getIntegerBitWidth() 
+        && (bool) ptrDepth == comp->isPointerTy()
+        && isFloat == comp->isFloatingPointTy());
 }
 
-/// CREATE ///
+Eisdrache::Ty Eisdrache::Ty::operator*() {
+    return Ty(eisdrache, bit, ptrDepth > 0 ? ptrDepth - 1 : 0, isFloat);    
+}
 
-Eisdrache::Eisdrache(LLVMContext *context, Module *module, IRBuilder<> *builder, std::string targetTriple) {
-    this->context = context;
-    this->module = module;
-    this->builder = builder;
+Type *Eisdrache::Ty::getTy() {
+    if (ptrDepth > 0)
+        return PointerType::get(*eisdrache->getContext(), 0);
 
-    TargetOptions targetOptions = TargetOptions();
-    targetOptions.FloatABIType = FloatABI::Hard;
-    TargetMachine *targetMachine = nullptr;
-
-    if (targetTriple.empty()) {
-        EngineBuilder engineBuilder = EngineBuilder();
-        engineBuilder.setTargetOptions(targetOptions);
-        targetMachine = engineBuilder.selectTarget();
-    } else {
-        std::string error;
-        const Target *target = TargetRegistry::lookupTarget(targetTriple, error);
-        if (!target) {
-            std::cerr << error << "\n";
-            assert(false && "TargetRegistry::lookupTarget() failed");
+    if (isFloat) 
+        switch (bit) {
+            case 16:    return Type::getHalfTy(*eisdrache->getContext());
+            case 32:    return Type::getFloatTy(*eisdrache->getContext());
+            case 64:    return Type::getDoubleTy(*eisdrache->getContext());
+            default:    return complain("Eisdrache::Ty::getTy(): Invalid amount of bits ("+std::to_string(bit)+") for floating point type (expected 16|32|64).");
         }
-        targetMachine = target->createTargetMachine(targetTriple, "generic", "", targetOptions, None);
+
+    if (bit == 0)
+        return Type::getVoidTy(*eisdrache->getContext());
+    
+    return Type::getIntNTy(*eisdrache->getContext(), bit);
+}
+
+Eisdrache::Ty Eisdrache::Ty::getPtrTo() { return Ty(eisdrache, bit, ptrDepth + 1, isFloat); }
+
+bool Eisdrache::Ty::isFloatTy() { return isFloat; }
+
+bool Eisdrache::Ty::isSignedTy() { return isSigned; }
+
+/// EISDRACHE LOCAL ///
+
+Eisdrache::Local::Local(Eisdrache *eisdrache, Value *ptr, Value *future)
+: eisdrache(eisdrache), v_ptr(ptr), future(future) {}
+
+Eisdrache::Local& Eisdrache::Local::operator=(const Local &copy) {
+    v_ptr = copy.v_ptr;
+    future = copy.future;
+    eisdrache = copy.eisdrache;
+    return *this;
+}
+
+bool Eisdrache::Local::operator==(const Local &comp) const { return v_ptr == comp.v_ptr; }
+
+bool Eisdrache::Local::operator==(const Value *comp) const { return v_ptr == comp; }
+
+AllocaInst *Eisdrache::Local::operator*() {
+    if (!isAlloca())
+        return complain("Eisdrache::Local::operator*(): Tried to get AllocaInst * of Value * ('"+v_ptr->getName().str()+"').");
+    return a_ptr;
+}
+
+AllocaInst *Eisdrache::Local::getAllocaPtr() { return operator*(); }
+
+Value *Eisdrache::Local::getValuePtr() { return v_ptr; }
+
+bool Eisdrache::Local::isAlloca() { return isa<AllocaInst>(v_ptr); }
+
+Eisdrache::Ty &Eisdrache::Local::getTy() { return type; }
+
+/// EISDRACHE FUNC ///
+
+Eisdrache::Func::Func() {
+    func = nullptr;
+    type = nullptr;
+    locals = Local::Vec();
+    eisdrache = nullptr;
+}
+
+Eisdrache::Func::Func(Eisdrache *eisdrache, Type *type, std::string name, ParamMap parameters, bool entry) {
+    this->eisdrache = eisdrache;
+    this->locals = Local::Vec();
+
+    std::vector<std::string> paramNames;
+    std::vector<Type *> paramTypes;
+    for (ParamMap::value_type &param : parameters) {
+        paramNames.push_back(param.first);
+        paramTypes.push_back(param.second);
     }
 
-    module->setTargetTriple(targetMachine->getTargetTriple().str());
-    module->setDataLayout(targetMachine->createDataLayout());
+    FunctionType *FT = FunctionType::get(type, paramTypes, false);
+    func = Function::Create(FT, Function::ExternalLinkage, name, *eisdrache->getModule());
+
+    for (size_t i = 0; i < func->arg_size(); i++)  
+        func->getArg(i)->setName(paramNames[i]);
+
+    if (entry) {
+        BasicBlock *entry = BasicBlock::Create(*eisdrache->getContext(), "entry", func);
+        eisdrache->setBlock(entry);
+    } else
+        llvm::verifyFunction(*func);
 }
+
+Eisdrache::Func::~Func() { locals.clear(); }
+
+Eisdrache::Func &Eisdrache::Func::operator=(const Func &copy) {
+    func = copy.func;
+    type = copy.type;
+    locals = copy.locals;
+    eisdrache = copy.eisdrache;
+    return *this;
+}
+
+bool Eisdrache::Func::operator==(const Func &comp) const { return func == comp.func; }
+
+bool Eisdrache::Func::operator==(const Function *comp) const { return func == comp; }
+
+Type *Eisdrache::Func::operator[](Value *local) {
+    if (isa<Argument>(local)) {
+        for (Argument &arg : func->args())
+            if (&arg == local) 
+                return arg.getType();
+        Eisdrache::complain("Eisdrache::Func::operator[](): Argument (Value) is not an existing Argument.");
+    } else if (isa<AllocaInst>(local)) {
+        for (Local &alloca : locals)
+            if (alloca == local)
+                return (*alloca)->getAllocatedType();
+        Eisdrache::complain("Eisdrache::Func::operator[](): AllocaInst (Value) is not an existing local.");
+    }  
+    
+    return Eisdrache::complain("Eisdrache::Func::operator[](): Value is not a Argument or AllocaInst");
+}
+
+Function *Eisdrache::Func::operator*() { return func; }
+
+Argument *Eisdrache::Func::arg(size_t index) { return func->getArg(index); }
+
+Value *Eisdrache::Func::call(ValueVec args, std::string name) { 
+    return eisdrache->callFunction(func, args, name); 
+}
+
+Eisdrache::Local &Eisdrache::Func::addLocal(Local local) { 
+    locals.push_back(local); 
+    return locals.back();
+}
+
+/// EISDRACHE STRUCT ///
+
+Eisdrache::Struct::Struct() {
+    type = nullptr;
+    ptr = nullptr;
+    eisdrache = nullptr;
+}
+
+Eisdrache::Struct::Struct(Eisdrache *eisdrache, std::string name, TypeVec elements) {
+    this->type = StructType::create(elements, name);
+    this->ptr = PointerType::get(type, 0);
+    this->eisdrache = eisdrache;
+}
+
+Eisdrache::Struct::~Struct() {}
+
+Eisdrache::Struct &Eisdrache::Struct::operator=(const Struct &copy) {
+    type = copy.type;
+    ptr = copy.ptr;
+    eisdrache = copy.eisdrache;
+    return *this;
+}
+
+bool Eisdrache::Struct::operator==(const Struct &comp) const { return type == comp.type; }
+
+bool Eisdrache::Struct::operator==(const Type *comp) const { return type == comp; }
+
+Type *Eisdrache::Struct::operator[](size_t index) { return type->getElementType(index); }
+
+StructType *Eisdrache::Struct::operator*() { return type; }
+
+Eisdrache::Local &Eisdrache::Struct::allocate(std::string name) {
+    return eisdrache->allocateStruct(*this, name);
+} 
+
+PointerType *Eisdrache::Struct::getPtr() { return ptr; }
+
+/// EISDRACHE WRAPPER ///
 
 Eisdrache::~Eisdrache() {
     delete builder;
-    memoryFunctions.clear();
+    functions.clear();
 }
 
-void Eisdrache::init() {
+void Eisdrache::initialize() {
     PassRegistry *registry = PassRegistry::getPassRegistry();
     InitializeAllTargetInfos();
     InitializeAllTargets();
@@ -100,355 +243,181 @@ Eisdrache *Eisdrache::create(Module *module, IRBuilder<> *builder, std::string t
     return new Eisdrache(&module->getContext(), module, builder, targetTriple);
 };
 
-/// DEBUG ///
-
 void Eisdrache::dump(raw_fd_ostream &os) { module->print(os, nullptr); }
+
+/// TYPES ///
+
+Eisdrache::Ty Eisdrache::getVoidTy() { return Ty(this); }
+
+Eisdrache::Ty Eisdrache::getBoolTy() { return Ty(this, 1); }
+
+Eisdrache::Ty Eisdrache::getSizeTy() { return Ty(this, 64); }
+
+Eisdrache::Ty Eisdrache::getSignedTy(size_t bit) { return Ty(this, bit, 0, false, true); }
+
+Eisdrache::Ty Eisdrache::getSignedPtrTy(size_t bit) { return Ty(this, bit, 1, false, true);}
+
+Eisdrache::Ty Eisdrache::getSignedPtrPtrTy(size_t bit) { return Ty(this, bit, 2, false, true); }
+
+Eisdrache::Ty Eisdrache::getUnsignedTy(size_t bit) { return Ty(this, bit, 0, false, true); }
+
+Eisdrache::Ty Eisdrache::getUnsignedPtrTy(size_t bit) { return Ty(this, bit, 1, false, true); }
+
+Eisdrache::Ty Eisdrache::getUnsignedPtrPtrTy(size_t bit) { return Ty(this, bit, 2, false, true); }
+
+Eisdrache::Ty Eisdrache::getFloatTy(size_t bit) { return Ty(this, bit, 0, true, true); }
+
+Eisdrache::Ty Eisdrache::getFloatPtrTy(size_t bit) { return Ty(this, bit, 1, true, true); }
+
+Eisdrache::Ty Eisdrache::getFloatPtrPtrTy(size_t bit) { return Ty(this, bit, 2, true, true); };
+
+/// VALUES ///
+
+ConstantInt *Eisdrache::getBool(bool value) { return builder->getInt1(value); }
+
+ConstantInt *Eisdrache::getInt(size_t bit, size_t value) { return builder->getIntN(bit, value); }
+
+ConstantFP *Eisdrache::getFloat(double value) { return ConstantFP::get(*context, APFloat(value)); }
+
+Constant *Eisdrache::getLiteral(std::string value, std::string name) { return builder->CreateGlobalStringPtr(value, name); }
+
+/// FUNCTIONS ///
+
+Eisdrache::Func &Eisdrache::declareFunction(Type *type, std::string name, TypeVec parameters) {
+    Func::ParamMap parsedParams = Func::ParamMap();
+    for (Type *&param : parameters)
+        parsedParams[std::to_string(parsedParams.size())] = param;
+    functions[name] = Func(this, type, name, parsedParams);
+    parent = &functions.at(name);
+    return *parent;
+}
+
+Eisdrache::Func &Eisdrache::declareFunction(Type *type, std::string name, Func::ParamMap parameters, bool entry) {
+    functions[name] = Func(this, type, name, parameters, entry);
+    parent = &functions.at(name);
+    return *parent;
+}
+
+Eisdrache::Func &Eisdrache::getWrap(Function *function) {
+    for (Func::Map::value_type &wrap : functions)
+        if (wrap.second == function)
+            return wrap.second;
+    complain("Could not find Eisdrache::Func of @" + function->getName().str() + "().");
+    return functions.end()->second;
+}
+
+bool Eisdrache::verifyFunc(Func &wrap) { 
+    return llvm::verifyFunction(**wrap); 
+}
+
+Value *Eisdrache::callFunction(Function *func, ValueVec args, std::string name) {
+    return builder->CreateCall(func, args, name);
+}
+
+Value *Eisdrache::callFunction(Func &wrap, ValueVec args, std::string name) { 
+    return wrap.call(args, name);
+}
+
+Value *Eisdrache::callFunction(std::string callee, ValueVec args, std::string name) { 
+    return functions.at(callee).call(args, name);
+}
+ 
+/// LOCALS ///
+
+Eisdrache::Local &Eisdrache::declareLocal(Type *type, std::string name, Value *value) {
+    AllocaInst *alloca = builder->CreateAlloca(type, nullptr, name);
+    return parent->addLocal(Local(this, alloca, value)); // TODO: signed values
+}
+
+Value *Eisdrache::loadLocal(Value *local, std::string name) {
+    assert(!"unimplemented");
+    // TODO: reimplement this with Local
+    // if (isa<AllocaInst>(local) && futures.contains((AllocaInst *) local))
+        // builder->CreateStore(futures[(AllocaInst *)local], local);
+    return builder->CreateLoad((*parent)[local], local, name);
+}
+
+/// STRUCT TYPES ///
+
+Eisdrache::Struct &Eisdrache::declareStruct(std::string name, TypeVec elements) {
+    structs[name] = Struct(this, name, elements);
+    return structs.at(name);
+}
+
+Eisdrache::Local &Eisdrache::allocateStruct(Struct &wrap, std::string name) {
+    AllocaInst *alloca = builder->CreateAlloca(*wrap, nullptr, name);
+    return parent->addLocal(Local(this, alloca));
+}
+
+Eisdrache::Local &Eisdrache::allocateStruct(std::string typeName, std::string name) {
+    AllocaInst *alloca = builder->CreateAlloca(*structs.at(typeName), nullptr, name);
+    return parent->addLocal(Local(this, alloca));
+}
+
+/// BUILDER ///
+
+ReturnInst *Eisdrache::createRet(BasicBlock *next) {
+    ReturnInst *inst = builder->CreateRetVoid();
+    if (next)
+        builder->SetInsertPoint(next);
+    return inst;
+}
+
+ReturnInst *Eisdrache::createRet(Value *value, BasicBlock *next) {
+    ReturnInst *inst = builder->CreateRet(value);
+    if (next)
+        builder->SetInsertPoint(next);
+    return inst;
+}
+
+void Eisdrache::setBlock(BasicBlock *block) {
+    builder->SetInsertPoint(block);
+}
 
 /// GETTER ///
 
 LLVMContext *Eisdrache::getContext() { return context; }
+
 Module *Eisdrache::getModule() { return module; }
+
 IRBuilder<> *Eisdrache::getBuilder() { return builder; }
 
-Type *Eisdrache::getVoidTy() { return builder->getVoidTy(); }
-Type *Eisdrache::getBoolTy() { return builder->getInt1Ty(); }
-IntegerType *Eisdrache::getSizeTy() { return getIntTy(64); }
-IntegerType *Eisdrache::getIntTy(size_t bit) { return Type::getIntNTy(*context, bit); }
-PointerType *Eisdrache::getIntPtrTy(size_t bit) { return Type::getIntNPtrTy(*context, bit); }
-PointerType *Eisdrache::getIntPtrPtrTy(size_t bit) { return getIntPtrTy(bit)->getPointerTo(); }
-Type *Eisdrache::getFloatTy(size_t bit) {
-    switch (bit) {
-        case 16:    return builder->getHalfTy();
-        case 32:    return builder->getFloatTy();
-        case 64:    return builder->getDoubleTy();
-        default:    assert(false && "invalid amount of bits");
+Eisdrache::Func &Eisdrache::getCurrentParent() { return *parent; }
+
+/// PRIVATE ///
+
+Eisdrache::Eisdrache(LLVMContext *context, Module *module, IRBuilder<> *builder, std::string targetTriple) {
+    this->context = context;
+    this->module = module;
+    this->builder = builder;
+    parent = nullptr;
+    functions = Func::Map();
+    structs = Struct::Map();
+
+    TargetOptions targetOptions = TargetOptions();
+    targetOptions.FloatABIType = FloatABI::Hard;
+    TargetMachine *targetMachine = nullptr;
+
+    if (targetTriple.empty()) {
+        EngineBuilder engineBuilder = EngineBuilder();
+        engineBuilder.setTargetOptions(targetOptions);
+        targetMachine = engineBuilder.selectTarget();
+    } else {
+        std::string error;
+        const Target *target = TargetRegistry::lookupTarget(targetTriple, error);
+        if (!target) 
+            complain("TargetRegistry::lookupTargt() failed: " + error);
+        targetMachine = target->createTargetMachine(targetTriple, "generic", "", targetOptions, None);
     }
+
+    module->setTargetTriple(targetMachine->getTargetTriple().str());
+    module->setDataLayout(targetMachine->createDataLayout());
 }
 
-ConstantInt *Eisdrache::getBool(bool value) { return builder->getInt1(value); }
-ConstantInt *Eisdrache::getInt(IntegerType *type, size_t value) { return ConstantInt::get(type, value); }
-ConstantInt *Eisdrache::getInt(size_t bit, size_t value) { return ConstantInt::get(getIntTy(bit), value); }
-ConstantFP *Eisdrache::getFloat(double value) { return ConstantFP::get(*context, APFloat(value)); }
-ConstantPointerNull *Eisdrache::getNullPtr(PointerType *type) { return ConstantPointerNull::get(type); }
-
-/// BUILDER ///
-
-Value *Eisdrache::allocate(Type *type, std::string name) { 
-    Value *allocated = builder->CreateAlloca(type, nullptr, name);
-    values.push_back( WrappedVal(WrappedVal::LOCAL, type, allocated));
-    return allocated;
-}
-
-Value *Eisdrache::call(Function *function, std::vector<Value *> args, std::string name) { 
-    Value *_call = builder->CreateCall(function, args, name);
-    values.push_back(WrappedVal(WrappedVal::LOADED, function->getType(), _call, builder->GetInsertBlock()));
-    return _call;
-};
-
-Function *Eisdrache::declare(Type *type, std::vector<Type *> parameters, std::string name, bool entry) {
-    FunctionType *FT = FunctionType::get(type, parameters, false);
-    Function *F = Function::Create(FT, Function::ExternalLinkage, name, *module);
-    if (entry) {
-        BasicBlock *BB = BasicBlock::Create(*context, "entry", F);
-        builder->SetInsertPoint(BB);
-        for (Argument &arg : F->args()) 
-            values.push_back(WrappedVal(WrappedVal::PARAMETER, arg.getType(), &arg, BB));
-    } else
-        llvm::verifyFunction(*F);
-    return F;
-}
-
-ReturnInst *Eisdrache::createRet(BasicBlock *next) {
-    ReturnInst *inst = builder->CreateRetVoid();
-    
-    for (size_t i = 0; i < values.size(); i++)
-        if (values[i].parent && values[i].parent->getParent() == inst->getParent()->getParent())
-            values.erase(values.begin() + i);
-    
-    if (next)
-        builder->SetInsertPoint(next);
-    
-    return inst;
+std::nullptr_t Eisdrache::complain(std::string message) {
+    std::cerr << "\033[31mError\033[0m: " << message << "\n"; 
+    exit(1);
+    return nullptr; // for warnings
 } 
 
-ReturnInst *Eisdrache::createRet(Value *value, BasicBlock *next) {
-    ReturnInst *inst = builder->CreateRet(value);
-    
-    for (size_t i = 0; i < values.size(); i++)
-        if (values[i].parent && values[i].parent->getParent() == inst->getParent()->getParent())
-            values.erase(values.begin() + i);
-    
-    if (next)
-        builder->SetInsertPoint(next);
-    
-    return inst;
-}
-
-StructType *Eisdrache::createType(std::vector<Type *> elements, std::string name) { 
-    StructType *that = StructType::create(*context, elements, name);
-    types[that->getName().str()] = WrappedType(that, elements);
-    return that;
-}
-
-Value *Eisdrache::getElementPtr(Value *ptr, size_t index, std::string name) {
-    Type *structType = getWrap(ptr).type; 
-    WrappedType &wrap = getWrap(structType);
-    Value *elementPtr = builder->CreateGEP(wrap.type, ptr, {getInt(64, 0), getInt(32, index)}, name);
-    values.push_back(WrappedVal(WrappedVal::LOADED, wrap[index], elementPtr));
-    return elementPtr;
-} 
-
-Value *Eisdrache::getElementVal(Value *ptr, size_t index, std::string name) {
-    Value *elementPtr = getElementPtr(ptr, index, name+"_ptr_");
-    Value *elementVal = loadValue(elementPtr, name, true);
-    values.push_back(WrappedVal(WrappedVal::LOADED, elementVal->getType(), elementVal));
-    return elementVal;
-}
-
-void Eisdrache::store(Value *value, Value *structPtr, size_t index) {
-    Value *elementPtr = getElementPtr(structPtr, index, "unnamed_gep_");
-    store(value, elementPtr);
-}
-
-void Eisdrache::store(Value *value, Value *ptr) { builder->CreateStore(value, ptr); }
-
-BranchInst *Eisdrache::jump(BasicBlock *block) { return builder->CreateBr(block); }
-
-BranchInst *Eisdrache::condJump(Value *condition, BasicBlock *then, BasicBlock *Else) { return builder->CreateCondBr(condition, then, Else); }
-
-void Eisdrache::setBlock(BasicBlock *block) { builder->SetInsertPoint(block); }
-
-BasicBlock *Eisdrache::block(bool insert, std::string name) {
-    BasicBlock *BB = BasicBlock::Create(*context, name, builder->GetInsertBlock()->getParent());
-    if (insert)
-        builder->SetInsertPoint(BB);
-    return BB;
-}
-
-Value *Eisdrache::binaryOp(BinaryOp op, Value *LHS, Value *RHS, std::string name) {
-    Value *lLoad = loadValue(LHS, name+"_lhs_load_");
-    Value *rLoad = loadValue(RHS, name+"_rhs_load_");
-
-    if (lLoad->getType() != rLoad->getType())
-        assert(false && "operands have different types");
-
-    size_t llvmOp;
-    Type *retType = lLoad->getType();
-    bool comparison = false;
-    CmpInst::Predicate pred;
-
-    switch (op) {
-        case ADD: 
-            if (retType->isFloatingPointTy()) llvmOp = Instruction::FAdd;
-            else llvmOp = Instruction::Add;
-            break;
-        case SUB: 
-            if (retType->isFloatingPointTy()) llvmOp = Instruction::FSub;
-            else llvmOp = Instruction::Sub; 
-            break;
-        case MUL: 
-            if (retType->isFloatingPointTy()) llvmOp = Instruction::FMul;
-            else llvmOp = Instruction::Mul;
-            break;
-        case DIV: 
-            if (retType->isIntegerTy()) retType = getFloatTy(64);
-            llvmOp = Instruction::FDiv; 
-            break;        
-        case XOR:
-            if (!retType->isIntegerTy()) assert(false && "invalid operands for xor");
-            llvmOp = Instruction::Xor;
-            break;
-        case OR:
-            if (!retType->isIntegerTy()) assert(false && "invalid operands for or");
-            llvmOp = Instruction::Or;
-            break;
-        case AND:
-            if (!retType->isIntegerTy()) assert(false && "invalid operands for and");
-            llvmOp = Instruction::And;
-            break;
-        case LSH:
-            if (!retType->isIntegerTy()) assert(false && "invalid operands for left shift");
-            llvmOp = Instruction::Shl;
-            break;
-        case RSH:
-            if (!retType->isIntegerTy()) assert(false && "invalid operands for right shift");
-            llvmOp = Instruction::LShr;
-            break;
-        case EQU:
-            comparison = true;
-            if (retType->isFloatingPointTy()) pred = CmpInst::FCMP_OEQ;
-            else pred = CmpInst::ICMP_EQ;
-            break;
-        case NEQ:
-            comparison = true;
-            if (retType->isFloatingPointTy()) pred = CmpInst::FCMP_ONE;
-            else pred = CmpInst::ICMP_NE;
-            break;
-        case GT:
-            comparison = true;
-            if (retType->isFloatingPointTy()) pred = CmpInst::FCMP_OGT;
-            else pred = CmpInst::ICMP_UGT; 
-            break;
-        case GTE:
-            comparison = true;
-            if (retType->isFloatingPointTy()) pred = CmpInst::FCMP_OGE;
-            else pred = CmpInst::ICMP_UGE; 
-            break;
-        case LT:
-            comparison = true;
-            if (retType->isFloatingPointTy()) pred = CmpInst::FCMP_OLT;
-            else pred = CmpInst::ICMP_ULT;
-            break;
-        case LTE:
-            comparison = true;
-            if (retType->isFloatingPointTy()) pred = CmpInst::FCMP_OLE;
-            else pred = CmpInst::ICMP_ULE;
-            break;
-        default:    assert(false && "binary operation not implemented");
-    }
-    
-    Value *binOp;
-    if (comparison) 
-        binOp = builder->CreateCmp(pred, LHS, RHS, name);
-    else 
-        binOp = builder->CreateBinOp((Instruction::BinaryOps) llvmOp, LHS, RHS, name);
-    values.push_back(WrappedVal(WrappedVal::LOADED, retType, binOp, builder->GetInsertBlock()));
-    return binOp;
-}
-
-Value *Eisdrache::convert(Type *type, Value *value, std::string name) {
-    value = loadValue(value, name+"_cast_value_load_");
-    Type *from = value->getType();
-    Instruction::CastOps op;
-
-    if (from == type) return value;
-
-    if (from->isIntegerTy()) {      
-        if (type->isIntegerTy()) {                                              // INTEGER TO INTEGER
-            if (from->getIntegerBitWidth() > type->getIntegerBitWidth()) 
-                op = Instruction::Trunc;
-            else 
-                op = Instruction::ZExt;
-        } else if (type->isPointerTy())                                         // INTEGER TO POINTER
-            op = Instruction::IntToPtr;
-        else if (type->isFloatingPointTy())                                     // INTEGER TO FLOAT
-            op = Instruction::UIToFP;
-        else
-            assert(false && "cast not implemented");
-    } else if (from->isPointerTy()) {                     
-        if (type->isPointerTy())                                                // POINTER TO POINTER
-            op = Instruction::BitCast;
-        else if (type->isIntegerTy())                                           // POINTER TO INTEGER
-            op = Instruction::PtrToInt;
-        else
-            assert(false && "cast not implemented");
-    } else if (from->isFloatingPointTy()) { 
-        if (type->isFloatingPointTy()) {                                        // FLOAT TO FLOAT
-            if (from->getFPMantissaWidth() > type->getFPMantissaWidth())
-                op = Instruction::FPTrunc;
-            else
-                op = Instruction::FPExt;
-        } else if (type->isIntegerTy())                                         // FLOAT TO INTEGER
-            op = Instruction::FPToUI;
-        else
-            assert(false && "cast not implemented");
-    } else if (from->isIntegerTy(1)) {
-        if (type->isPointerTy())
-            op = Instruction::IntToPtr;
-        else if (type->isFloatingPointTy())
-            op = Instruction::UIToFP;
-    } else
-        assert(false && "cast not implemented");
-
-    Value *cast = builder->CreateCast(op, value, type, name);
-    values.push_back(WrappedVal(WrappedVal::LOADED, type, cast, builder->GetInsertBlock()));
-    return cast;
-}
-
-Constant *Eisdrache::literal(std::string value, std::string name) {
-    Constant *literal = builder->CreateGlobalStringPtr(value, name, 0, module);
-    values.push_back(WrappedVal(WrappedVal::LITERAL, getIntPtrTy(8), literal, builder->GetInsertBlock()));
-    return literal;
-}
-
-WrappedVal &Eisdrache::getWrap(Value *pointer) {
-    for (WrappedVal &x : values) 
-        if (x.value == pointer)
-            return x;
-    std::cerr << "tried to load value of '" << pointer->getName().str() << "' from @" << builder->GetInsertBlock()->getParent()->getName().str() << "()\n";
-    assert(false && "value not found in WrappedVal::Map Eisdrache::values");
-}
-
-WrappedType &Eisdrache::getWrap(Type *type) {
-    if (type->isPointerTy()) {
-        for (WrappedType::Map::value_type &x : types) {
-            if (x.second.type->getPointerTo() == type)
-                return x.second;
-        }
-
-        assert(false && "type ist not a pointer to a struct type");
-    } else if (!type->isStructTy())
-        assert(false && "type is not a StructType *");
-    else {
-        for (WrappedType::Map::value_type &x : types) 
-            if ((Type *) x.second.type == type)
-                return x.second;
-        
-        assert(false && "struct type not found in WrappedType::Map Eisdrache::types");
-    }
-}
-
-Value *Eisdrache::loadValue(Value *pointer, std::string name, bool force) {
-    if (isConstant(pointer) | isArgument(pointer)) 
-        return pointer;
-
-    WrappedVal &that = getWrap(pointer);
-    
-    if (that.future) {
-        builder->CreateStore(that.future, that.value);
-        that.future = nullptr;
-    }
-    
-    if (force || that.kind == WrappedVal::LOCAL) {
-        Value *loaded = builder->CreateLoad(that.type, pointer, name.empty() ? pointer->getName()+"_load_" : name);
-        values.push_back(WrappedVal(WrappedVal::LOADED, loaded->getType(), loaded, builder->GetInsertBlock()));
-        return loaded;
-    }
-    
-    return pointer;
-}
-
-Value *Eisdrache::loadValue(Type *type, Value *pointer, std::string name) {
-    Value *load = builder->CreateLoad(type, pointer, name);
-    values.push_back(WrappedVal(WrappedVal::LOADED, type, load, builder->GetInsertBlock()));
-    return load;
-}
-
-void Eisdrache::setFuture(Value *local, Value *value) { getWrap(local).future = value; }
-
-bool Eisdrache::isConstant(Value *value) { return isa<Constant>(value); }
-
-bool Eisdrache::isArgument(Value *value) { return isa<Argument>(value); }
-
-Value *Eisdrache::malloc(Type *type, Value *size, std::string name) { 
-    return call(memoryFunctions.at(type)["malloc"], {size}, name); 
-}
-
-void Eisdrache::free(Type *type, Value *value) { 
-    call(memoryFunctions.at(type)["free"], {value}); 
-}
-
-Value *Eisdrache::memcpy(Type *type, Value *dest, Value *source, Value *size, std::string name) { 
-    return call(memoryFunctions.at(type)["memcpy"], {dest, source, size}, name); 
-}
-
-void Eisdrache::createMemoryFunctions(Type *type) {
-    PointerType *ptrType = type->getPointerTo();
-    if (memoryFunctions.contains(ptrType))
-        return;
-    memoryFunctions[type]["malloc"] = declare(ptrType, {getSizeTy()}, "malloc");
-    memoryFunctions[type]["free"] = declare(getVoidTy(), {ptrType}, "free");
-    memoryFunctions[type]["memcpy"] = declare(ptrType, {ptrType, ptrType, getSizeTy()}, "memcpy");
-}
-
-}
+} // namespace llvm

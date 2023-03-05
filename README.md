@@ -8,59 +8,64 @@
 - Simplified `IRBuilder`
 - Implementation for dynamic arrays
 
-###### How to use
+#### How to Use
 
-###### Struct Types
+###### Hello World
 
 ```cpp
 // main.cpp
 #include "eisdrache.hpp"
 
+using namespace llvm;
+
 int main(void) {
-    llvm::Eisdrache::init();
-    llvm::Eisdrache *eisdrache = llvm::Eisdrache::create("test compiler");
-     // type { i64, half }
-    llvm::StructType *testType = eisdrache->createType(
-        {eisdrache->getSizeTy(), eisdrache->getFloatTy(16)}, "test_type");
-    // i64 @main (i64, i8**)
-    llvm::Function *main = eisdrache->declare(eisdrache->getIntTy(64), 
-        {eisdrache->getIntTy(64), eisdrache->getIntPtrPtrTy(8)}, "main", true);
-    // %allocated = alloca %test_type
-    llvm::Value *allocated = eisdrache->allocate(testType, "allocated");
-    // store i64 0, ptr allocated.elements[0] (once it gets referenced)
-    llvm::Value *elemPtr = eisdrache->getElementPtr(allocated, 0, "val_ptr");
-    eisdrache->setFuture(elemPtr, eisdrache->getInt(64, 0));
-    // %val = load i64, ptr %val_ptr
-    llvm::Value *val = eisdrache->loadValue(elemPtr, "val", true);
-    // ret i64 %val
-    eisdrache->createRet(val);
-    llvm::verifyFunction(*main);
+    Eisdrache::initialize();
+    Eisdrache *eisdrache = Eisdrache::create("test compiler");
+    
+    // i64 @puts(i8* nocapture %buffer)
+    Eisdrache::Func &puts = eisdrache->declareFunction(eisdrache->getIntTy(), "puts", {eisdrache->getIntPtrTy(8)});
+    puts.arg(0)->addAttr(Attribute::NoCapture);
+    
+    // i64 @main(i64 %argc, i8** %argv)
+    Eisdrache::Func &main = eisdrache->declareFunction(eisdrache->getIntTy(), "main", 
+        {{"argc", eisdrache->getIntTy()}, {"argv", eisdrache->getIntPtrPtrTy(8)}}, true);
+    // @literal = private unnamed_addr constant [14 x i8] c"Hello World!\0A\00"
+    Constant *literal = eisdrache->getLiteral("Hello World!\n", "literal");
+    // %0 = call i64 @puts(ptr @literal)
+    puts.call({literal});
+    // ret i64 0
+    eisdrache->createRet(eisdrache->getInt(64, 0));
+    eisdrache->verifyFunc(main);
+    
     eisdrache->dump();
     return 0;
 }
 ```
 
-###### Hello World
+###### Local Variables 
 
 ```cpp
+// main.cpp
 #include "eisdrache.hpp"
 
+using namespace llvm;
+
 int main(void) {
-    llvm::Eisdrache::init();
-    llvm::Eisdrache *eisdrache = llvm::Eisdrache::create("test compiler");
-    // i64 @puts (i8* nocapture)
-    llvm::Function *puts = eisdrache->declare(eisdrache->getIntTy(64), {eisdrache->getIntPtrTy(8)}, "puts");
-    puts->getArg(0)->addAttr(llvm::Attribute::NoCapture);
-    // i64 @main (i64, i8**)
-    llvm::Function *main = eisdrache->declare(eisdrache->getIntTy(64), 
-        {eisdrache->getIntTy(64), eisdrache->getIntPtrPtrTy(8)}, "main", true);
-    // @message = private unnamed_addr constant [14 x i8] c"Hello World!\0A\00"
-    llvm::Value *message = eisdrache->literal("Hello World!\n", "message");
-    // call i64 @puts(ptr @message)
-    eisdrache->call(puts, {message});
-    // ret i64 0
-    eisdrache->createRet(eisdrache->getInt(64, 0));
-    llvm::verifyFunction(*main);
+    Eisdrache::initialize();
+    Eisdrache *eisdrache = Eisdrache::create("test compiler");    
+        
+    // i64 @main(i64 %argc, i8** %argv)
+    Eisdrache::Func &main = eisdrache->declareFunction(eisdrache->getIntTy(), "main", 
+        {{"argc", eisdrache->getIntTy()}, {"argv", eisdrache->getIntPtrPtrTy(8)}}, true);
+    // %var = alloca i64
+    Value *var = eisdrache->declareLocal(eisdrache->getIntTy(), "var", eisdrache->getInt(64, 3));
+    // store i64 3, ptr %var ; (future value assigned from declaration)
+    // %var_load = load i64, ptr %var
+    Value *load = eisdrache->loadLocal(var, "var_load");
+    // ret i64 %var_load
+    eisdrache->createRet(load);
+    eisdrache->verifyFunc(main);
+
     eisdrache->dump();
     return 0;
 }
