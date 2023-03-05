@@ -275,7 +275,11 @@ Eisdrache::Ty Eisdrache::getFloatPtrPtrTy(size_t bit) { return Ty(this, bit, 2, 
 
 ConstantInt *Eisdrache::getBool(bool value) { return builder->getInt1(value); }
 
-ConstantInt *Eisdrache::getInt(size_t bit, size_t value) { return builder->getIntN(bit, value); }
+ConstantInt *Eisdrache::getInt(size_t bit, uint64_t value) { return builder->getIntN(bit, value); }
+
+Value *Eisdrache::getNegative(ConstantInt *value) { 
+    return builder->CreateSub(builder->getIntN(value->getBitWidth(), 0), value, "eisdrache_negate_");
+}
 
 ConstantFP *Eisdrache::getFloat(double value) { return ConstantFP::get(*context, APFloat(value)); }
 

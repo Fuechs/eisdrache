@@ -252,7 +252,8 @@ public:
     /// VALUES ///
 
     ConstantInt *getBool(bool value);
-    ConstantInt *getInt(size_t bit, size_t value);
+    ConstantInt *getInt(size_t bit, uint64_t value);
+    Value *getNegative(ConstantInt *value);
     ConstantFP *getFloat(double value);
     Constant *getLiteral(std::string value, std::string name = "");
 
