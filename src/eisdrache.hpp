@@ -45,12 +45,16 @@ public:
     using TypeVec = std::vector<Type *>;
     using InstVec = std::vector<Instruction *>;
 
+    class Struct;
+
     /**
      * @brief Custom Type Class;
      * 
      * This class contains
      * * the amount of bits (0 = void), 
      * * wether the type is a floating point type,
+     * * wether the type is signed,
+     * * a possible struct type,
      * * and the pointer depth.
      */
     class Ty {
@@ -59,26 +63,31 @@ public:
         using Map = std::map<std::string, Ty>;
 
         Ty(Eisdrache *eisdrache = nullptr, size_t bit = 0, size_t ptrDepth = 0, bool isFloat = false, bool isSigned = false);
+        Ty(Eisdrache *eisdrache, Struct &structTy, size_t ptrDepth = 0);
 
         Ty &operator=(const Ty &copy);
-        bool operator==(const Ty &comp);
+        bool operator==(const Ty &comp) const;
         // NOTE: can not check wether types are completely equal
-        bool operator==(const Type *comp);
+        bool operator==(const Type *comp) const;
         // return this Ty with pointer depth - 1 ("dereference")
-        Ty operator*();
+        Ty operator*() const;
 
         // get the equivalent llvm::Type 
-        Type *getTy();
+        Type *getTy() const;
         // get this type with pointer depth + 1
-        Ty getPtrTo();
-        bool isFloatTy();
-        bool isSignedTy();
+        Ty getPtrTo() const;
+        bool isFloatTy() const;
+        bool isSignedTy() const;
+        bool isPtrTy() const;
 
     private:
         size_t bit;
         size_t ptrDepth;
+
         bool isFloat;
         bool isSigned;
+
+        Struct *structTy;
 
         Eisdrache *eisdrache;
     };
@@ -97,21 +106,23 @@ public:
     public:
         using Vec = std::vector<Local>;
 
-        Local(Eisdrache *eisdrache = nullptr, Value *ptr = nullptr, Value *future = nullptr);
+        Local(Eisdrache *eisdrache = nullptr, Ty type = Ty(), Value *ptr = nullptr, Value *future = nullptr);
         
         Local &operator=(const Local &copy);
         bool operator==(const Local &comp) const;
         bool operator==(const Value *comp) const;
         AllocaInst *operator*();
 
+        void setPtr(Value *ptr);
+        void setFuture(Value *future);
+
         AllocaInst *getAllocaPtr();
         Value *getValuePtr();
-        Ty &getTy();
+        const Ty &getTy();
 
         bool isAlloca();
-        bool isSigned();
 
-        Value *loadValue();
+        Local &loadValue(bool force = false, std::string name = "");
         void invokeFuture();
 
     private:
@@ -119,7 +130,7 @@ public:
             Value *v_ptr;
             AllocaInst *a_ptr;
         };
-        Ty type;
+        const Ty type;
         Value *future;
 
         Eisdrache *eisdrache;
@@ -140,32 +151,34 @@ public:
     public:
         using Vec = std::vector<Func>;
         using Map = std::unordered_map<std::string, Func>;
-        using ParamMap = std::map<std::string, Type *>;
         using BlockVec = std::vector<BasicBlock *>;
 
         Func();
-        Func(Eisdrache *eisdrache, Type *type, std::string name, ParamMap parameters, bool entry = false);
+        Func(Eisdrache *eisdrache, Ty type, std::string name, Ty::Map parameters, bool entry = false);
         ~Func();
 
         Func &operator=(const Func &copy);
         bool operator==(const Func &comp) const;
         bool operator==(const Function *comp) const;
         // get type of a local / parameter
-        Type *operator[](Value *local);
+        const Ty &operator[](Value *local);
         // get the wrapped llvm::Function
         Function *operator*();
 
         // get argument at index
-        Argument *arg(size_t index);
+        Local &arg(size_t index);
         // call this function
-        Value *call(ValueVec args = {}, std::string name = "");
+        Local &call(ValueVec args = {}, std::string name = "");
         // add a local variable to this function
         // and return reference to copy of local
         Local &addLocal(Local local);
 
+        const Ty &getTy() const;
+
     private:
         Function *func;
-        Type *type;
+        Ty type;
+        Local::Vec parameters;
         Local::Vec locals;
 
         Eisdrache *eisdrache;
@@ -267,7 +280,7 @@ public:
      * @param parameters parameters of the function 
      * @return Func & - Eisdrache::Func (wrapped llvm::Function)
      */
-    Func &declareFunction(Type *type, std::string name, TypeVec parameters);
+    Func &declareFunction(Ty type, std::string name, Ty::Vec parameters);
     /**
      * @brief Declare a llvm::Function.
      * 
@@ -277,7 +290,7 @@ public:
      * @param entry (optional) creates entry llvm::BasicBlock in function body if true
      * @return Func & - Eisdrache::Func (wrapped llvm::Function)
      */
-    Func &declareFunction(Type *type, std::string name, Func::ParamMap parameters = Func::ParamMap(), bool entry = false);
+    Func &declareFunction(Ty type, std::string name, Ty::Map parameters = Ty::Map(), bool entry = false);
     /**
      * @brief Get the Eisdrache::Func wrapper object
      * 
@@ -294,32 +307,23 @@ public:
      */
     bool verifyFunc(Func &wrap);
     /**
-     * @brief Call a llvm::Function by its address.
-     * 
-     * @param func Pointer to llvm::Function
-     * @param args (optional) Function call arguments
-     * @param name (optional) Name of the returned value
-     * @return Value * - Value returned from the call.
-     */
-    Value *callFunction(Function *func, ValueVec args = {}, std::string name = "");
-    /**
      * @brief Call a llvm::Function by its wrap.
      * 
      * @param wrap Eisdrache::Func (wrapped llvm::Function) of the callee function
      * @param args (optional) Function call arguments
      * @param name (optional) Name of the returned value
-     * @return Value * - Value returned from the call.
+     * @return Value * - Wrapped llvm::Value returned from call
      */
-    Value *callFunction(Func &wrap, ValueVec args = {}, std::string name = "");
+    Local &callFunction(Func &wrap, ValueVec args = {}, std::string name = "");
     /**
      * @brief Call a llvm::Function by its name.
      * 
      * @param callee Name of the callee function
      * @param args (optional) Function call arguments
      * @param name (optional) Name of the returned value
-     * @return Value * - Value returned from the call.
+     * @return Value * - Wrapped llvm::Value returned from call
      */
-    Value *callFunction(std::string callee, ValueVec args = {}, std::string name = "");
+    Local &callFunction(std::string callee, ValueVec args = {}, std::string name = "");
 
     /// LOCALS ///
 
@@ -331,16 +335,16 @@ public:
      * @param value (optional) Future value to be assigned to local variable
      * @return Local & - Wrapped alloca instruction
      */
-    Local &declareLocal(Type *type, std::string name = "", Value *value = nullptr);
+    Local &declareLocal(Ty type, std::string name = "", Value *value = nullptr);
 
     /**
      * @brief Load the value of a local variable.
      * 
-     * @param local Pointer to the local.
+     * @param local Wrapped llvm::Value
      * @param name (optional) Name of the loaded value.
-     * @return Value * - The loaded value. 
+     * @return Local & - Wrapped llvm::Value
      */
-    Value *loadLocal(Value *local, std::string name = "");
+    Local &loadLocal(Local &local, std::string name = "");
 
     /// STRUCT TYPES ///
 
@@ -388,7 +392,7 @@ public:
      * @param next (optional) Next insertion point
      * @return ReturnInst * - Return Instruction returned from llvm::IRBuilder
      */
-    ReturnInst *createRet(Value *value, BasicBlock *next = nullptr);
+    ReturnInst *createRet(Local &value, BasicBlock *next = nullptr);
     /**
      * @brief Set the current insertion block.
      * 
