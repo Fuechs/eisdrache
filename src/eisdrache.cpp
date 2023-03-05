@@ -74,6 +74,12 @@ Type *Eisdrache::Ty::getTy() const {
 
 Eisdrache::Ty Eisdrache::Ty::getPtrTo() const { return Ty(eisdrache, bit, ptrDepth + 1, isFloat); }
 
+Eisdrache::Struct &Eisdrache::Ty::getStructTy() const {
+    if (!structTy)
+        Eisdrache::complain("Eisdrache::Ty::getStructTy(): Tried to get struct type, but there is none.");
+    return *structTy;
+}
+
 bool Eisdrache::Ty::isFloatTy() const { return isFloat; }
 
 bool Eisdrache::Ty::isSignedTy() const { return isSigned; }
@@ -123,7 +129,7 @@ Eisdrache::Local &Eisdrache::Local::loadValue(bool force, std::string name) {
 
     Ty loadTy = *type;
     LoadInst *load = eisdrache->getBuilder()->CreateLoad(loadTy.getTy(), 
-        v_ptr, name.empty() ? v_ptr->getName().str()+"_load_" : name);
+        v_ptr, name.empty() ? v_ptr->getName().str()+"_load" : name);
     return eisdrache->getCurrentParent().addLocal(Local(eisdrache, loadTy, load));
 }
 
@@ -224,13 +230,18 @@ const Eisdrache::Ty &Eisdrache::Func::getTy() const { return type; }
 
 Eisdrache::Struct::Struct() {
     type = nullptr;
-    ptr = nullptr;
+    ptr = Ty();
+    elements = Ty::Vec();
     eisdrache = nullptr;
 }
 
-Eisdrache::Struct::Struct(Eisdrache *eisdrache, std::string name, TypeVec elements) {
-    this->type = StructType::create(elements, name);
-    this->ptr = PointerType::get(type, 0);
+Eisdrache::Struct::Struct(Eisdrache *eisdrache, std::string name, Ty::Vec elements) {
+    TypeVec elementTypes = TypeVec();
+    for (Ty &e : elements)
+        elementTypes.push_back(e.getTy());
+    this->type = StructType::create(elementTypes, name);
+    this->ptr = Ty(eisdrache, *this, 1);
+    this->elements = elements;
     this->eisdrache = eisdrache;
 }
 
@@ -239,6 +250,7 @@ Eisdrache::Struct::~Struct() {}
 Eisdrache::Struct &Eisdrache::Struct::operator=(const Struct &copy) {
     type = copy.type;
     ptr = copy.ptr;
+    elements = copy.elements;
     eisdrache = copy.eisdrache;
     return *this;
 }
@@ -247,7 +259,7 @@ bool Eisdrache::Struct::operator==(const Struct &comp) const { return type == co
 
 bool Eisdrache::Struct::operator==(const Type *comp) const { return type == comp; }
 
-Type *Eisdrache::Struct::operator[](size_t index) { return type->getElementType(index); }
+const Eisdrache::Ty &Eisdrache::Struct::operator[](size_t index) const { return elements.at(index); }
 
 StructType *Eisdrache::Struct::operator*() { return type; }
 
@@ -255,7 +267,7 @@ Eisdrache::Local &Eisdrache::Struct::allocate(std::string name) {
     return eisdrache->allocateStruct(*this, name);
 } 
 
-PointerType *Eisdrache::Struct::getPtr() { return ptr; }
+const Eisdrache::Ty &Eisdrache::Struct::getPtrTy() const { return ptr; }
 
 /// EISDRACHE WRAPPER ///
 
@@ -373,14 +385,14 @@ Eisdrache::Local &Eisdrache::callFunction(std::string callee, ValueVec args, std
 
 Eisdrache::Local &Eisdrache::declareLocal(Ty type, std::string name, Value *value) {
     AllocaInst *alloca = builder->CreateAlloca(type.getTy(), nullptr, name);
-    return parent->addLocal(Local(this, type.getPtrTo(), alloca, value)); // TODO: signed values
+    return parent->addLocal(Local(this, type.getPtrTo(), alloca, value));
 }
 
 Eisdrache::Local &Eisdrache::loadLocal(Local &local, std::string name) { return local.loadValue(); }
 
 /// STRUCT TYPES ///
 
-Eisdrache::Struct &Eisdrache::declareStruct(std::string name, TypeVec elements) {
+Eisdrache::Struct &Eisdrache::declareStruct(std::string name, Ty::Vec elements) {
     structs[name] = Struct(this, name, elements);
     return structs.at(name);
 }
@@ -391,8 +403,21 @@ Eisdrache::Local &Eisdrache::allocateStruct(Struct &wrap, std::string name) {
 }
 
 Eisdrache::Local &Eisdrache::allocateStruct(std::string typeName, std::string name) {
-    AllocaInst *alloca = builder->CreateAlloca(*structs.at(typeName), nullptr, name);
-    return parent->addLocal(Local(this, Ty(this, structs.at(typeName), 1), alloca));
+    Struct &ref = structs.at(typeName);
+    AllocaInst *alloca = builder->CreateAlloca(*ref, nullptr, name);
+    return parent->addLocal(Local(this, ref.getPtrTy(), alloca));
+}
+
+Eisdrache::Local &Eisdrache::getElementPtr(Local &parent, size_t index, std::string name) {
+    Struct &ref = parent.getTy().getStructTy();
+    Value *gep = builder->CreateGEP(*ref, parent.getValuePtr(), 
+        {getInt(32, 0), getInt(32, index)}, name);
+    return this->parent->addLocal(Local(this, ref[index].getPtrTo(), gep));
+}
+
+Eisdrache::Local &Eisdrache::getElementVal(Local &parent, size_t index, std::string name) {
+    Local &ptr = getElementPtr(parent, index, name+"_ptr");
+    return ptr.loadValue(true, name);
 }
 
 /// BUILDER ///
@@ -406,6 +431,13 @@ ReturnInst *Eisdrache::createRet(BasicBlock *next) {
 
 ReturnInst *Eisdrache::createRet(Local &value, BasicBlock *next) {
     ReturnInst *inst = builder->CreateRet(value.loadValue().getValuePtr());
+    if (next)
+        builder->SetInsertPoint(next);
+    return inst;
+}
+
+ReturnInst *Eisdrache::createRet(Constant *value, BasicBlock *next) {
+    ReturnInst *inst = builder->CreateRet(value);
     if (next)
         builder->SetInsertPoint(next);
     return inst;

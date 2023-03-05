@@ -76,6 +76,7 @@ public:
         Type *getTy() const;
         // get this type with pointer depth + 1
         Ty getPtrTo() const;
+        Struct &getStructTy() const;
         bool isFloatTy() const;
         bool isSignedTy() const;
         bool isPtrTy() const;
@@ -199,25 +200,26 @@ public:
         using Map = std::unordered_map<std::string, Struct>;
 
         Struct();
-        Struct(Eisdrache *eisdrache, std::string name, TypeVec elements);
+        Struct(Eisdrache *eisdrache, std::string name, Ty::Vec elements);
         ~Struct();
 
         Struct &operator=(const Struct &copy);
         bool operator==(const Struct &comp) const;
         bool operator==(const Type *comp) const;
         // get type of an element at an index
-        Type *operator[](size_t index);
+        const Ty &operator[](size_t index) const;
         // get the wrapped llvm::StructType
         StructType *operator*();
         
         // allocate object of this type
         Local &allocate(std::string name = "");
         // get the pointer to this type
-        PointerType *getPtr();
+        const Ty &getPtrTy() const;
 
     private:
         StructType *type;
-        PointerType *ptr;
+        Ty ptr;
+        Ty::Vec elements;
 
         Eisdrache *eisdrache;
     };
@@ -353,9 +355,9 @@ public:
      * 
      * @param name Name of the struct type
      * @param elements Types of the elements of the struct type
-     * @return Struct & - Eisdrache::Struct (wrapped llvm::StructType) 
+     * @return Struct & - Wrapped llvm::StructType
      */
-    Struct &declareStruct(std::string name, TypeVec elements);
+    Struct &declareStruct(std::string name, Ty::Vec elements);
 
     /**
      * @brief Allocate object of struct type.
@@ -376,6 +378,26 @@ public:
      */
     Local &allocateStruct(std::string typeName, std::string name = "");
 
+    /**
+     * @brief Get the pointer to element at an index
+     * 
+     * @param parent Parent of the element
+     * @param index Index of the element
+     * @param name Name of the returned value
+     * @return Local & - Wrapped llvm::Value
+     */
+    Local &getElementPtr(Local &parent, size_t index, std::string name = "");
+
+    /**
+     * @brief Get the value of an element at an index
+     * 
+     * @param parent Parent of the element
+     * @param index Index of the element
+     * @param name Name of the returned value
+     * @return Local & - Wrapped llvm::Value 
+     */
+    Local &getElementVal(Local &parent, size_t index, std::string name = "");
+
     /// BUILDER ///
 
     /**
@@ -393,6 +415,15 @@ public:
      * @return ReturnInst * - Return Instruction returned from llvm::IRBuilder
      */
     ReturnInst *createRet(Local &value, BasicBlock *next = nullptr);
+    /**
+     * @brief Create a return instruction with a constant.
+     * 
+     * @param value Value to return
+     * @param next (optional) Next insertion point
+     * @return ReturnInst * - Return Instruction returned from llvm::IRBuilder
+     */
+    ReturnInst *createRet(Constant *value, BasicBlock *next = nullptr);
+
     /**
      * @brief Set the current insertion block.
      * 
