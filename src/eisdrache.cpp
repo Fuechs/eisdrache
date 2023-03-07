@@ -15,12 +15,45 @@ namespace llvm {
 
 /// EISDRACHE TY ///
 
+Eisdrache::Ty::Ty(Eisdrache *eisdrache, Type *llvmTy) {
+    this->eisdrache = eisdrache;
+    structTy = nullptr;
+    ptrDepth = 0;
+    isSigned = true;
+    isFloat = true;
+    switch (llvmTy->getTypeID()) {
+        case Type::IntegerTyID:
+            bit = llvmTy->getIntegerBitWidth();
+            isSigned = false;
+            isFloat = false;
+            break;
+        case Type::HalfTyID:    bit = 16; break;
+        case Type::FloatTyID:   bit = 32; break;
+        case Type::DoubleTyID:  bit = 64; break;
+        case Type::PointerTyID: 
+            bit = 0; 
+            ptrDepth = 1; 
+            isSigned = false;
+            isFloat = false;
+            break;
+        case Type::StructTyID:
+            Eisdrache::complain("Eisdrache::Ty::Ty(): Can not construct Eisdrache::Ty from a llvm::Type with ID: Type::StructTyID.");
+        case Type::FunctionTyID:
+            Eisdrache::complain("Eisdrache::Ty::Ty(): Can not construct Eisdrache::Ty from a llvm::Type with ID: Type::FunctionTyID.");
+        case Type::ArrayTyID:
+            Eisdrache::complain("Eisdrache::Ty::Ty(): Can not construct Eisdrache::Ty from a llvm::Type with ID: Type::ArrayTyID.");
+        default:
+            break;
+    }
+}
+
 Eisdrache::Ty::Ty(Eisdrache *eisdrache, size_t bit, size_t ptrDepth, bool isFloat, bool isSigned)
 : eisdrache(eisdrache), bit(bit), ptrDepth(ptrDepth), 
     isFloat(isFloat), isSigned(isSigned), structTy(nullptr) {}
 
 Eisdrache::Ty::Ty(Eisdrache *eisdrache, Struct &structTy, size_t ptrDepth)
-: eisdrache(eisdrache), bit(0), ptrDepth(ptrDepth), isFloat(false), isSigned(false), structTy(&structTy) {}
+: eisdrache(eisdrache), bit(0), ptrDepth(ptrDepth), 
+    isFloat(false), isSigned(false), structTy(&structTy) {}
 
 Eisdrache::Ty &Eisdrache::Ty::operator=(const Ty &copy) {
     bit = copy.bit;
@@ -88,11 +121,15 @@ bool Eisdrache::Ty::isPtrTy() const { return ptrDepth > 0; }
 
 /// EISDRACHE LOCAL ///
 
+Eisdrache::Local::Local(Eisdrache *eisdrache, Constant *constant) 
+: eisdrache(eisdrache), v_ptr(constant), type(eisdrache, constant->getType()), future(nullptr) {}
+
 Eisdrache::Local::Local(Eisdrache *eisdrache, Ty type, Value *ptr, Value *future)
 : eisdrache(eisdrache), type(type), v_ptr(ptr), future(future) {}
 
 Eisdrache::Local& Eisdrache::Local::operator=(const Local &copy) {
     v_ptr = copy.v_ptr;
+    type = copy.type;
     future = copy.future;
     eisdrache = copy.eisdrache;
     return *this;
@@ -112,11 +149,19 @@ void Eisdrache::Local::setPtr(Value *ptr) { v_ptr = ptr; }
 
 void Eisdrache::Local::setFuture(Value *future) { this->future = future; }
 
+void Eisdrache::Local::setTy(const Ty& ty) { type = ty; }
+
 AllocaInst *Eisdrache::Local::getAllocaPtr() { return operator*(); }
 
 Value *Eisdrache::Local::getValuePtr() { return v_ptr; }
 
-const Eisdrache::Ty &Eisdrache::Local::getTy() { return type; }
+const Eisdrache::Ty &Eisdrache::Local::getTy() const { return type; }
+
+std::string Eisdrache::Local::getName() const { 
+    if (!v_ptr || !v_ptr->hasName())
+        return "unnamed";
+    return v_ptr->getName().str();
+}
 
 bool Eisdrache::Local::isAlloca() { return isa<AllocaInst>(v_ptr); }
 
@@ -143,14 +188,14 @@ Eisdrache::Func::Func() {
     func = nullptr;
     type = Ty();
     parameters = Local::Vec();
-    locals = Local::Vec();
+    locals = Local::Map();
     eisdrache = nullptr;
 }
 
 Eisdrache::Func::Func(Eisdrache *eisdrache, Ty type, std::string name, Ty::Map parameters, bool entry) {
     this->eisdrache = eisdrache;
     this->type = type;
-    this->locals = Local::Vec();
+    this->locals = Local::Map();
     this->parameters = Local::Vec();
 
     std::vector<std::string> paramNames;
@@ -191,24 +236,7 @@ bool Eisdrache::Func::operator==(const Func &comp) const { return func == comp.f
 
 bool Eisdrache::Func::operator==(const Function *comp) const { return func == comp; }
 
-const Eisdrache::Ty &Eisdrache::Func::operator[](Value *local) {
-    if (isa<Argument>(local)) {
-        for (Local &param : parameters)
-            if (param.getValuePtr() == local) 
-                return param.getTy();
-        Eisdrache::complain("Eisdrache::Func::operator[](): Argument (Value) is not an existing argument.");
-    }
-    
-    if (isa<AllocaInst>(local)) {
-        for (Local &alloca : locals)
-            if (alloca == local)
-                return alloca.getTy();
-        Eisdrache::complain("Eisdrache::Func::operator[](): AllocaInst (Value) is not an existing local.");
-    }  
-    
-    Eisdrache::complain("Eisdrache::Func::operator[](): Value is not an Argument or AllocaInst");
-    return type; // silence warning
-}
+Eisdrache::Local &Eisdrache::Func::operator[](std::string symbol) { return locals.at(symbol); }
 
 Function *Eisdrache::Func::operator*() { return func; }
 
@@ -220,8 +248,13 @@ Eisdrache::Local &Eisdrache::Func::call(ValueVec args, std::string name) {
 }
  
 Eisdrache::Local &Eisdrache::Func::addLocal(Local local) { 
-    locals.push_back(local); 
-    return locals.back();
+    std::string symbol = "";
+    if (local.getName() == "unnamed" || locals.contains(local.getName()))
+        symbol = local.getName()+std::to_string(locals.size());
+    else
+        symbol = local.getName();
+    locals[symbol] = local;
+    return locals[symbol];
 }
 
 const Eisdrache::Ty &Eisdrache::Func::getTy() const { return type; }
@@ -390,6 +423,26 @@ Eisdrache::Local &Eisdrache::declareLocal(Ty type, std::string name, Value *valu
 
 Eisdrache::Local &Eisdrache::loadLocal(Local &local, std::string name) { return local.loadValue(); }
 
+StoreInst *Eisdrache::storeValue(Local &local, Local &value) {
+    if (!local.getTy().isPtrTy())
+        return Eisdrache::complain("Eisdrache::storeValue(): Local is not a pointer (%"+local.getName()+").");
+
+    if (*local.getTy() != value.getTy() 
+    && !local.getTy().isFloatTy() 
+    && !value.getTy().isFloatTy()
+    && value.getTy().isPtrTy())
+        return Eisdrache::complain("Eisdrache::storeValue(): Value type does not match type of local.");
+    
+    return builder->CreateStore(value.getValuePtr(), local.getValuePtr());
+} 
+
+StoreInst *Eisdrache::storeValue(Local &local, Constant *value) {
+    if (!local.getTy().isPtrTy())
+        return Eisdrache::complain("Eisdrache::storeValue(): Local is not a pointer.");
+    
+    return builder->CreateStore(value, local.getValuePtr());
+}
+
 /// STRUCT TYPES ///
 
 Eisdrache::Struct &Eisdrache::declareStruct(std::string name, Ty::Vec elements) {
@@ -445,6 +498,53 @@ ReturnInst *Eisdrache::createRet(Constant *value, BasicBlock *next) {
 
 void Eisdrache::setBlock(BasicBlock *block) {
     builder->SetInsertPoint(block);
+}
+
+Eisdrache::Local &Eisdrache::binaryOp(Op op, Local &LHS, Local &RHS) {
+    Local &l = LHS.loadValue(false, LHS.getName()+"_lhs_load");
+    Local &r = RHS.loadValue(false, RHS.getName()+"_rhs_load");
+    const Ty &ty = l.getTy();
+    Local bop = Local(this, ty); 
+    if (ty != r.getTy())
+        Eisdrache::complain("Eisdrache::binaryOp(): LHS and RHS types differ.");
+
+    switch (op) {
+        case ADD:
+            if (ty.isFloatTy()) 
+                bop.setPtr(builder->CreateFAdd(l.getValuePtr(), r.getValuePtr(), "addtmp"));
+            else
+                bop.setPtr(builder->CreateAdd(l.getValuePtr(), r.getValuePtr(), "addtmp"));
+            break;
+        case SUB:
+            if (ty.isFloatTy())
+                bop.setPtr(builder->CreateFSub(l.getValuePtr(), r.getValuePtr(), "subtmp"));
+            else
+                bop.setPtr(builder->CreateSub(l.getValuePtr(), r.getValuePtr(), "subtmp"));
+            break;
+        case MUL:
+            if (ty.isFloatTy())
+                bop.setPtr(builder->CreateFMul(l.getValuePtr(), r.getValuePtr(), "multmp"));
+            else
+                bop.setPtr(builder->CreateMul(l.getValuePtr(), r.getValuePtr(), "multmp"));
+            break;
+        case DIV:
+            if (ty.isFloatTy())
+                bop.setPtr(builder->CreateFDiv(l.getValuePtr(), r.getValuePtr(), "divtmp"));
+            else if (ty.isSignedTy())
+                bop.setPtr(builder->CreateSDiv(l.getValuePtr(), r.getValuePtr(), "divtmp"));
+            else
+                bop.setPtr(builder->CreateUDiv(l.getValuePtr(), r.getValuePtr(), "divtmp"));
+            break;
+        case OR:    bop.setPtr(builder->CreateOr(l.getValuePtr(), r.getValuePtr(), "ortmp")); break;
+        case XOR:   bop.setPtr(builder->CreateXor(l.getValuePtr(), r.getValuePtr(), "xortmp")); break;
+        case AND:   bop.setPtr(builder->CreateAnd(l.getValuePtr(), r.getValuePtr(), "andtmp")); break;
+        case LSH:   bop.setPtr(builder->CreateShl(l.getValuePtr(), r.getValuePtr(), "lshtmp")); break;
+        case RSH:   bop.setPtr(builder->CreateLShr(l.getValuePtr(), r.getValuePtr(), "rshtmp")); break;
+        default:
+            Eisdrache::complain("Eisdrache::binaryOp(): Operation ("+std::to_string(op)+") not implemented.");
+    }
+
+    return parent->addLocal(bop);
 }
 
 /// GETTER ///

@@ -45,6 +45,19 @@ public:
     using TypeVec = std::vector<Type *>;
     using InstVec = std::vector<Instruction *>;
 
+    // Binary Operations
+    enum Op {
+        ADD,    // addition             +
+        SUB,    // subtraction          -
+        MUL,    // multiplication       *
+        DIV,    // division             /
+        OR,     // bit or               |
+        XOR,    // bit xor              ^
+        AND,    // bit and              &
+        LSH,    // left bit shift       <<
+        RSH,    // right bit shift      >>
+    };
+
     class Struct;
 
     /**
@@ -62,6 +75,7 @@ public:
         using Vec = std::vector<Ty>;
         using Map = std::map<std::string, Ty>;
 
+        Ty(Eisdrache *eisdrache, Type *llvmTy);
         Ty(Eisdrache *eisdrache = nullptr, size_t bit = 0, size_t ptrDepth = 0, bool isFloat = false, bool isSigned = false);
         Ty(Eisdrache *eisdrache, Struct &structTy, size_t ptrDepth = 0);
 
@@ -106,7 +120,9 @@ public:
     class Local {
     public:
         using Vec = std::vector<Local>;
+        using Map = std::map<std::string, Local>;
 
+        Local(Eisdrache *eisdrache, Constant *constant);
         Local(Eisdrache *eisdrache = nullptr, Ty type = Ty(), Value *ptr = nullptr, Value *future = nullptr);
         
         Local &operator=(const Local &copy);
@@ -116,10 +132,12 @@ public:
 
         void setPtr(Value *ptr);
         void setFuture(Value *future);
+        void setTy(const Ty &ty);
 
         AllocaInst *getAllocaPtr();
         Value *getValuePtr();
-        const Ty &getTy();
+        const Ty &getTy() const;
+        std::string getName() const;
 
         bool isAlloca();
 
@@ -131,7 +149,7 @@ public:
             Value *v_ptr;
             AllocaInst *a_ptr;
         };
-        const Ty type;
+        Ty type;
         Value *future;
 
         Eisdrache *eisdrache;
@@ -161,8 +179,8 @@ public:
         Func &operator=(const Func &copy);
         bool operator==(const Func &comp) const;
         bool operator==(const Function *comp) const;
-        // get type of a local / parameter
-        const Ty &operator[](Value *local);
+        // update reference local by symbol
+        Local &operator[](std::string symbol);
         // get the wrapped llvm::Function
         Function *operator*();
 
@@ -180,7 +198,7 @@ public:
         Function *func;
         Ty type;
         Local::Vec parameters;
-        Local::Vec locals;
+        Local::Map locals;
 
         Eisdrache *eisdrache;
     };
@@ -348,6 +366,23 @@ public:
      */
     Local &loadLocal(Local &local, std::string name = "");
 
+    /**
+     * @brief Store a value in a local variable.
+     * 
+     * @param local Local to be stored at (must be a pointer)
+     * @param value Value to store in local
+     * @return StoreInst * - Store instruction returned by llvm::IRBuilder
+     */
+    StoreInst *storeValue(Local &local, Local &value);
+    /**
+     * @brief Store a value in a local variable.
+     * 
+     * @param local Local to be stored at (must be a pointer)
+     * @param value Value to store in local
+     * @return StoreInst * - Store instruction returned by llvm::IRBuilder
+     */
+    StoreInst *storeValue(Local &local, Constant *value);
+
     /// STRUCT TYPES ///
 
     /**
@@ -430,6 +465,8 @@ public:
      * @param block The insertion block
      */
     void setBlock(BasicBlock *block);
+
+    Local &binaryOp(Op op, Local &LHS, Local &RHS); 
 
     /// GETTER ///
 
