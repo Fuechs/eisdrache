@@ -72,8 +72,8 @@ public:
      */
     class Ty {
     public:
-        using Vec = std::vector<Ty>;
-        using Map = std::map<std::string, Ty>;
+        using Vec = std::vector<Ty *>;
+        using Map = std::map<std::string, Ty *>;
 
         Ty(Eisdrache *eisdrache, Type *llvmTy);
         Ty(Eisdrache *eisdrache = nullptr, size_t bit = 0, size_t ptrDepth = 0, bool isFloat = false, bool isSigned = false);
@@ -84,12 +84,12 @@ public:
         // NOTE: can not check wether types are completely equal
         bool operator==(const Type *comp) const;
         // return this Ty with pointer depth - 1 ("dereference")
-        Ty operator*() const;
+        Ty *operator*() const;
 
         // get the equivalent llvm::Type 
         Type *getTy() const;
         // get this type with pointer depth + 1
-        Ty getPtrTo() const;
+        Ty *getPtrTo() const;
         Struct &getStructTy() const;
         bool isFloatTy() const;
         bool isSignedTy() const;
@@ -123,7 +123,7 @@ public:
         using Map = std::map<std::string, Local>;
 
         Local(Eisdrache *eisdrache, Constant *constant);
-        Local(Eisdrache *eisdrache = nullptr, Ty type = Ty(), Value *ptr = nullptr, Value *future = nullptr);
+        Local(Eisdrache *eisdrache = nullptr, Ty *type = nullptr, Value *ptr = nullptr, Value *future = nullptr);
         
         Local &operator=(const Local &copy);
         bool operator==(const Local &comp) const;
@@ -132,11 +132,11 @@ public:
 
         void setPtr(Value *ptr);
         void setFuture(Value *future);
-        void setTy(const Ty &ty);
+        void setTy(Ty *ty);
 
         AllocaInst *getAllocaPtr();
         Value *getValuePtr();
-        const Ty &getTy() const;
+        Ty *getTy();
         std::string getName() const;
 
         bool isAlloca();
@@ -149,7 +149,7 @@ public:
             Value *v_ptr;
             AllocaInst *a_ptr;
         };
-        Ty type;
+        Ty *type;
         Value *future;
 
         Eisdrache *eisdrache;
@@ -173,7 +173,7 @@ public:
         using BlockVec = std::vector<BasicBlock *>;
 
         Func();
-        Func(Eisdrache *eisdrache, Ty type, std::string name, Ty::Map parameters, bool entry = false);
+        Func(Eisdrache *eisdrache, Ty *type, std::string name, Ty::Map parameters, bool entry = false);
         ~Func();
 
         Func &operator=(const Func &copy);
@@ -192,11 +192,11 @@ public:
         // and return reference to copy of local
         Local &addLocal(Local local);
 
-        const Ty &getTy() const;
+        Ty *getTy();
 
     private:
         Function *func;
-        Ty type;
+        Ty *type;
         Local::Vec parameters;
         Local::Map locals;
 
@@ -225,18 +225,18 @@ public:
         bool operator==(const Struct &comp) const;
         bool operator==(const Type *comp) const;
         // get type of an element at an index
-        const Ty &operator[](size_t index) const;
+        Ty *operator[](size_t index);
         // get the wrapped llvm::StructType
         StructType *operator*();
         
         // allocate object of this type
         Local &allocate(std::string name = "");
         // get the pointer to this type
-        const Ty &getPtrTy() const;
+        Ty *getPtrTy() const;
 
     private:
         StructType *type;
-        Ty ptr;
+        Ty *ptr;
         Ty::Vec elements;
 
         Eisdrache *eisdrache;
@@ -258,29 +258,29 @@ public:
     /// TYPES //
 
     // Type: void
-    Ty getVoidTy();
+    Ty *getVoidTy();
     // Type: i1
-    Ty getBoolTy();
+    Ty *getBoolTy();
     // Type: i64 (size_t)
-    Ty getSizeTy();
+    Ty *getSizeTy();
     // Type: bit
-    Ty getSignedTy(size_t bit);
+    Ty *getSignedTy(size_t bit);
     // Type: bit*
-    Ty getSignedPtrTy(size_t bit);
+    Ty *getSignedPtrTy(size_t bit);
     // Type: bit**
-    Ty getSignedPtrPtrTy(size_t bit);
+    Ty *getSignedPtrPtrTy(size_t bit);
     // Type: bit
-    Ty getUnsignedTy(size_t bit);
+    Ty *getUnsignedTy(size_t bit);
     // Type: bit*
-    Ty getUnsignedPtrTy(size_t bit);
+    Ty *getUnsignedPtrTy(size_t bit);
     // Type: bit**
-    Ty getUnsignedPtrPtrTy(size_t bit);
+    Ty *getUnsignedPtrPtrTy(size_t bit);
     // Type: 16 = half, 32 = float, 64 = double
-    Ty getFloatTy(size_t bit);
+    Ty *getFloatTy(size_t bit);
     // Type: 16 = half*, 32 = float*, 64 = double*
-    Ty getFloatPtrTy(size_t bit);
+    Ty *getFloatPtrTy(size_t bit);
     // Type: 16 = half**, 32 = float**, 64 = double**
-    Ty getFloatPtrPtrTy(size_t bit);
+    Ty *getFloatPtrPtrTy(size_t bit);
 
     /// VALUES ///
 
@@ -300,7 +300,7 @@ public:
      * @param parameters parameters of the function 
      * @return Func & - Eisdrache::Func (wrapped llvm::Function)
      */
-    Func &declareFunction(Ty type, std::string name, Ty::Vec parameters);
+    Func &declareFunction(Ty *type, std::string name, Ty::Vec parameters);
     /**
      * @brief Declare a llvm::Function.
      * 
@@ -310,7 +310,7 @@ public:
      * @param entry (optional) creates entry llvm::BasicBlock in function body if true
      * @return Func & - Eisdrache::Func (wrapped llvm::Function)
      */
-    Func &declareFunction(Ty type, std::string name, Ty::Map parameters = Ty::Map(), bool entry = false);
+    Func &declareFunction(Ty *type, std::string name, Ty::Map parameters = Ty::Map(), bool entry = false);
     /**
      * @brief Get the Eisdrache::Func wrapper object
      * 
@@ -466,6 +466,14 @@ public:
      */
     void setBlock(BasicBlock *block);
 
+    /**
+     * @brief Create a binary operation.
+     * 
+     * @param op Operation
+     * @param LHS Left-Hand-Side
+     * @param RHS Right-Hand-Side
+     * @return Local & - Result 
+     */
     Local &binaryOp(Op op, Local &LHS, Local &RHS); 
 
     /// GETTER ///
@@ -476,24 +484,45 @@ public:
      * @return LLVMContext * 
      */
     LLVMContext *getContext();
+    
     /**
      * @brief Get the llvm::Module
      * 
      * @return Module * 
      */
     Module *getModule();
+    
     /**
      * @brief Get the llvm::IRBuilder
      * 
      * @return IRBuilder<> * 
      */
     IRBuilder<> *getBuilder();
+    
     /**
      * @brief Get the current wrapped parent llvm::Function
      * 
      * @return Func & 
      */
     Func &getCurrentParent();
+    
+    /**
+     * @brief Get the vector of Eisdrache::Tys in this context
+     * 
+     * @return Ty::Vec & 
+     */
+    Ty::Vec &getTypes();
+    
+    /**
+     * @brief Add a new Eisdrache::Ty to this context.
+     *      If the type exists, it will return the pointer to it.
+     *      If not, it will add the given type to the context.
+     * 
+     * @param ty Pointer to the Ty
+     * @return Ty * - Pointer to the found type.
+     */
+    Ty *addTy(Ty *ty);
+
 
 
 private:
@@ -509,6 +538,7 @@ private:
 
     Func::Map functions;
     Struct::Map structs;
+    Ty::Vec types;
 };
 
 } // namespace llvm
