@@ -17,13 +17,14 @@
 #include <map>
 
 #include <llvm/PassRegistry.h>
-#include "llvm/InitializePasses.h"
+#include <llvm/InitializePasses.h>
 #include <llvm/ADT/Triple.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/Verifier.h>
+#include <llvm/IR/Instructions.h>
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/Target/TargetOptions.h>
 #include "llvm/Support/TargetSelect.h"
@@ -43,7 +44,6 @@ class Eisdrache {
 public:
     using ValueVec = std::vector<Value *>;
     using TypeVec = std::vector<Type *>;
-    using InstVec = std::vector<Instruction *>;
 
     // Binary Operations
     enum Op {
@@ -123,7 +123,7 @@ public:
         using Map = std::map<std::string, Local>;
 
         Local(Eisdrache *eisdrache, Constant *constant);
-        Local(Eisdrache *eisdrache = nullptr, Ty *type = nullptr, Value *ptr = nullptr, Value *future = nullptr);
+        Local(Eisdrache *eisdrache = nullptr, Ty *type = nullptr, Value *ptr = nullptr, Value *future = nullptr, ValueVec future_args = ValueVec());
         
         Local &operator=(const Local &copy);
         bool operator==(const Local &comp) const;
@@ -141,6 +141,13 @@ public:
 
         bool isAlloca();
 
+        /**
+         * @brief Load the value stored at the adress of the local.
+         * 
+         * @param force Load value even if Local is not an alloca instruction
+         * @param name Name of the loaded value
+         * @return Local & 
+         */
         Local &loadValue(bool force = false, std::string name = "");
         void invokeFuture();
 
@@ -151,7 +158,7 @@ public:
         };
         Ty *type;
         Value *future;
-
+        ValueVec future_args;
         Eisdrache *eisdrache;
     };
 
@@ -170,7 +177,6 @@ public:
     public:
         using Vec = std::vector<Func>;
         using Map = std::unordered_map<std::string, Func>;
-        using BlockVec = std::vector<BasicBlock *>;
 
         Func();
         Func(Eisdrache *eisdrache, Ty *type, std::string name, Ty::Map parameters, bool entry = false);
@@ -311,6 +317,7 @@ public:
      * @return Func & - Eisdrache::Func (wrapped llvm::Function)
      */
     Func &declareFunction(Ty *type, std::string name, Ty::Map parameters = Ty::Map(), bool entry = false);
+    
     /**
      * @brief Get the Eisdrache::Func wrapper object
      * 
@@ -318,6 +325,7 @@ public:
      * @return Func & - Eisdrache::Func (wrapped llvm::Function)
      */
     Func &getWrap(Function *function);
+
     /**
      * @brief Verify that a Eisdrache::Func is error-free.
      *          TODO: Implement this function.
@@ -326,6 +334,7 @@ public:
      * @return false - Eisdrache::Func contains errors.
      */
     bool verifyFunc(Func &wrap);
+
     /**
      * @brief Call a llvm::Function by its wrap.
      * 
@@ -353,9 +362,10 @@ public:
      * @param type Type to allocate
      * @param name (optional) Name of the AllocaInst *
      * @param value (optional) Future value to be assigned to local variable
+     * @param value_args (optional) Arguments if future value is a function
      * @return Local & - Wrapped alloca instruction
      */
-    Local &declareLocal(Ty type, std::string name = "", Value *value = nullptr);
+    Local &declareLocal(Ty *type, std::string name = "", Value *future = nullptr, ValueVec future_args = ValueVec());
 
     /**
      * @brief Load the value of a local variable.
@@ -382,6 +392,24 @@ public:
      * @return StoreInst * - Store instruction returned by llvm::IRBuilder
      */
     StoreInst *storeValue(Local &local, Constant *value);
+
+    
+    /**
+     * @brief Create an instruction for the future assignment of a local
+     * 
+     * @param local The local
+     * @param value Value to be assigned
+     */
+    void createFuture(Local &local, Value *value);
+    /**
+     * @brief Create an instruction for the future assignment of a local
+     * 
+     * @param local The local
+     * @param func Function to be called on local
+     * @param args Arguments for function call
+     */
+    void createFuture(Local &local, Func &func, ValueVec args);
+
 
     /// STRUCT TYPES ///
 

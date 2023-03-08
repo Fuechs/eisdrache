@@ -126,8 +126,8 @@ Eisdrache::Local::Local(Eisdrache *eisdrache, Constant *constant)
     type = eisdrache->addTy(new Ty(eisdrache, constant->getType()));
 }
 
-Eisdrache::Local::Local(Eisdrache *eisdrache, Ty *type, Value *ptr, Value *future)
-: eisdrache(eisdrache), type(type), v_ptr(ptr), future(future) {}
+Eisdrache::Local::Local(Eisdrache *eisdrache, Ty *type, Value *ptr, Value *future, ValueVec future_args)
+: eisdrache(eisdrache), type(type), v_ptr(ptr), future(future), future_args(future_args) {}
 
 Eisdrache::Local& Eisdrache::Local::operator=(const Local &copy) {
     v_ptr = copy.v_ptr;
@@ -181,6 +181,8 @@ Eisdrache::Local &Eisdrache::Local::loadValue(bool force, std::string name) {
 }
 
 void Eisdrache::Local::invokeFuture() {
+    if (Function *func = dyn_cast<Function>(future))
+        future = eisdrache->getBuilder()->CreateCall(func, future_args, getName()+"_future");
     eisdrache->getBuilder()->CreateStore(future, v_ptr);
 }
 
@@ -309,6 +311,8 @@ Eisdrache::Ty *Eisdrache::Struct::getPtrTy() const { return ptr; }
 Eisdrache::~Eisdrache() {
     delete builder;
     functions.clear();
+    structs.clear();
+    types.clear();
 }
 
 void Eisdrache::initialize() {
@@ -418,9 +422,9 @@ Eisdrache::Local &Eisdrache::callFunction(std::string callee, ValueVec args, std
  
 /// LOCALS ///
 
-Eisdrache::Local &Eisdrache::declareLocal(Ty type, std::string name, Value *value) {
-    AllocaInst *alloca = builder->CreateAlloca(type.getTy(), nullptr, name);
-    return parent->addLocal(Local(this, type.getPtrTo(), alloca, value));
+Eisdrache::Local &Eisdrache::declareLocal(Ty *type, std::string name, Value *value, ValueVec future_args) {
+    AllocaInst *alloca = builder->CreateAlloca(type->getTy(), nullptr, name);
+    return parent->addLocal(Local(this, type->getPtrTo(), alloca, value, future_args));
 }
 
 Eisdrache::Local &Eisdrache::loadLocal(Local &local, std::string name) { return local.loadValue(); }
@@ -444,6 +448,8 @@ StoreInst *Eisdrache::storeValue(Local &local, Constant *value) {
     
     return builder->CreateStore(value, local.getValuePtr());
 }
+
+void Eisdrache::createFuture(Local &local, Value *value) { local.setFuture(value); }
 
 /// STRUCT TYPES ///
 
