@@ -77,7 +77,7 @@ public:
 
         Ty(Eisdrache *eisdrache, Type *llvmTy);
         Ty(Eisdrache *eisdrache = nullptr, size_t bit = 0, size_t ptrDepth = 0, bool isFloat = false, bool isSigned = false);
-        Ty(Eisdrache *eisdrache, Struct &structTy, size_t ptrDepth = 0);
+        Ty(Eisdrache *eisdrache, Struct *structTy, size_t ptrDepth = 0);
 
         Ty &operator=(const Ty &copy);
         bool operator==(const Ty &comp) const;
@@ -176,7 +176,7 @@ public:
     class Func {
     public:
         using Vec = std::vector<Func>;
-        using Map = std::unordered_map<std::string, Func>;
+        using Map = std::map<std::string, Func>;
 
         Func();
         Func(Eisdrache *eisdrache, Ty *type, std::string name, Ty::Map parameters, bool entry = false);
@@ -221,7 +221,7 @@ public:
     class Struct {
     public:
         using Vec = std::vector<Struct>;
-        using Map = std::unordered_map<std::string, Struct>;
+        using Map = std::map<std::string, Struct>;
 
         Struct();
         Struct(Eisdrache *eisdrache, std::string name, Ty::Vec elements);
@@ -238,12 +238,40 @@ public:
         // allocate object of this type
         Local &allocate(std::string name = "");
         // get the pointer to this type
-        Ty *getPtrTy() const;
+        Ty *getPtrTy();
 
     private:
         StructType *type;
-        Ty *ptr;
         Ty::Vec elements;
+
+        Eisdrache *eisdrache;
+    };
+
+    class Array {
+    public:
+        enum Member {
+            GET_BUFFER,
+            GET_SIZE,
+            GET_MAX,
+            GET_FACTOR,
+        };
+
+        Array(Eisdrache *eisdrache = nullptr, Ty *elementTy = nullptr, std::string name = "");
+        ~Array();
+
+        Local &allocate(std::string name = "");
+        Local &call(Member callee, ValueVec args = {}, std::string name = "");
+
+    private:
+        std::string name;
+        Struct *self;
+        Ty *elementTy;
+        Ty *bufferTy;
+        
+        Func *get_buffer = nullptr;
+        Func *get_size = nullptr;
+        Func *get_max = nullptr;
+        Func *get_factor = nullptr;
 
         Eisdrache *eisdrache;
     };

@@ -51,9 +51,9 @@ Eisdrache::Ty::Ty(Eisdrache *eisdrache, size_t bit, size_t ptrDepth, bool isFloa
 : eisdrache(eisdrache), bit(bit), ptrDepth(ptrDepth), 
     isFloat(isFloat), isSigned(isSigned), structTy(nullptr) {}
 
-Eisdrache::Ty::Ty(Eisdrache *eisdrache, Struct &structTy, size_t ptrDepth)
+Eisdrache::Ty::Ty(Eisdrache *eisdrache, Struct *structTy, size_t ptrDepth)
 : eisdrache(eisdrache), bit(0), ptrDepth(ptrDepth), 
-    isFloat(false), isSigned(false), structTy(&structTy) {}
+    isFloat(false), isSigned(false), structTy(structTy) {}
 
 Eisdrache::Ty &Eisdrache::Ty::operator=(const Ty &copy) {
     bit = copy.bit;
@@ -267,7 +267,6 @@ Eisdrache::Ty *Eisdrache::Func::getTy() { return type; }
 
 Eisdrache::Struct::Struct() {
     type = nullptr;
-    ptr = nullptr;
     elements = Ty::Vec();
     eisdrache = nullptr;
 }
@@ -277,7 +276,6 @@ Eisdrache::Struct::Struct(Eisdrache *eisdrache, std::string name, Ty::Vec elemen
     for (Ty *&e : elements)
         elementTypes.push_back(e->getTy());
     this->type = StructType::create(elementTypes, name);
-    this->ptr = eisdrache->addTy(new Ty(eisdrache, *this, 1));
     this->elements = elements;
     this->eisdrache = eisdrache;
 }
@@ -286,7 +284,6 @@ Eisdrache::Struct::~Struct() {}
 
 Eisdrache::Struct &Eisdrache::Struct::operator=(const Struct &copy) {
     type = copy.type;
-    ptr = copy.ptr;
     elements = copy.elements;
     eisdrache = copy.eisdrache;
     return *this;
@@ -304,7 +301,66 @@ Eisdrache::Local &Eisdrache::Struct::allocate(std::string name) {
     return eisdrache->allocateStruct(*this, name);
 } 
 
-Eisdrache::Ty *Eisdrache::Struct::getPtrTy() const { return ptr; }
+Eisdrache::Ty *Eisdrache::Struct::getPtrTy() { return eisdrache->addTy(new Ty(eisdrache, this, 1)); }
+
+/// EISDRACHE ARRAY ///
+
+Eisdrache::Array::Array(Eisdrache *eisdrache, Ty *elementTy, std::string name) {
+    this->eisdrache = eisdrache;
+    this->name = name;
+    this->elementTy = elementTy;
+    this->bufferTy = elementTy->getPtrTo();
+    this->self = &eisdrache->declareStruct(name, {
+        bufferTy,                   // TYPE* buffer
+        eisdrache->getSizeTy(),     // i64 size
+        eisdrache->getSizeTy(),     // i64 max
+        eisdrache->getSizeTy(),     // i64 factor
+    });
+
+    { // get_buffer
+    get_buffer = &eisdrache->declareFunction(bufferTy, name+"_get_buffer", 
+        {{"this", self->getPtrTy()}}, true);
+    Local &buffer = eisdrache->getElementVal(get_buffer->arg(0), 0, "buffer");
+    eisdrache->createRet(buffer);
+    }
+
+    { // get_size
+    get_size = &eisdrache->declareFunction(eisdrache->getSizeTy(), name+"_get_size", 
+        {{"this", self->getPtrTy()}}, true);
+    Local &size = eisdrache->getElementVal(get_size->arg(0), 1, "size");
+    eisdrache->createRet(size);
+    }
+
+    { // get_max
+    get_max = &eisdrache->declareFunction(eisdrache->getSizeTy(), name+"_get_max",
+        {{"this", self->getPtrTy()}}, true);
+    Local &max = eisdrache->getElementVal(get_max->arg(0), 2, "max");
+    eisdrache->createRet(max);
+    }
+    
+    { // get_factor
+    get_factor = &eisdrache->declareFunction(eisdrache->getSizeTy(), name+"_get_factor",
+        {{"this", self->getPtrTy()}}, true);
+    Local &factor = eisdrache->getElementVal(get_factor->arg(0), 3, "factor");
+    eisdrache->createRet(factor);
+    }
+}
+
+Eisdrache::Array::~Array() { name.clear(); }
+
+Eisdrache::Local &Eisdrache::Array::allocate(std::string name) {
+    return eisdrache->allocateStruct(*self, name);
+}
+
+Eisdrache::Local &Eisdrache::Array::call(Member callee, ValueVec args, std::string name) {
+    switch (callee) {
+        case GET_BUFFER:    return get_buffer->call(args, name);
+        case GET_SIZE:      return get_size->call(args, name);
+        case GET_MAX:       return get_max->call(args, name);
+        case GET_FACTOR:    return get_factor->call(args, name);
+        default:            Eisdrache::complain("Eisdrache::Array::call(): Callee not implemented.");
+    }
+}
 
 /// EISDRACHE WRAPPER ///
 
@@ -460,7 +516,7 @@ Eisdrache::Struct &Eisdrache::declareStruct(std::string name, Ty::Vec elements) 
 
 Eisdrache::Local &Eisdrache::allocateStruct(Struct &wrap, std::string name) {
     AllocaInst *alloca = builder->CreateAlloca(*wrap, nullptr, name);
-    return parent->addLocal(Local(this, addTy(new Ty(this, wrap, 1)), alloca));
+    return parent->addLocal(Local(this, addTy(new Ty(this, &wrap, 1)), alloca));
 }
 
 Eisdrache::Local &Eisdrache::allocateStruct(std::string typeName, std::string name) {

@@ -118,7 +118,7 @@ private:
 
 #ifdef LLVM_ARRAY_IMPL 
 
-EisdracheArray::EisdracheArray(Eisdrache *eisdrache, Type *elementType, std::string typeName) {
+EisdracheArray::EisdracheArray(Eisdrache *eisdrache, Eisdrache *elementType, std::string typeName) {
     this->eisdrache = eisdrache;
     this->elementType = elementType;
     elementPtr = elementType->getPointerTo();
@@ -130,6 +130,12 @@ EisdracheArray::EisdracheArray(Eisdrache *eisdrache, Type *elementType, std::str
         eisdrache->getSizeTy(),  // i64 maxlength;
         eisdrache->getSizeTy(),  // i64 factor; amount to preallocate when growing
     }, name);
+    self = eisdrache->declareStruct(name, {
+        elementPtr,
+        eisdrache->getSizeTy(),
+        eisdrache->getSizeTy(),
+        eisdrache->getSizeTy(),
+    })
     ptr = self->getPointerTo();
 
     eisdrache->createMemoryFunctions(elementType);
