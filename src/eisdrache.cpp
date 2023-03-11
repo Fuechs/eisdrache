@@ -266,6 +266,7 @@ Eisdrache::Ty *Eisdrache::Func::getTy() { return type; }
 /// EISDRACHE STRUCT ///
 
 Eisdrache::Struct::Struct() {
+    name = "";
     type = nullptr;
     elements = Ty::Vec();
     eisdrache = nullptr;
@@ -275,14 +276,16 @@ Eisdrache::Struct::Struct(Eisdrache *eisdrache, std::string name, Ty::Vec elemen
     TypeVec elementTypes = TypeVec();
     for (Ty *&e : elements)
         elementTypes.push_back(e->getTy());
+    this->name = name;
     this->type = StructType::create(elementTypes, name);
     this->elements = elements;
     this->eisdrache = eisdrache;
 }
 
-Eisdrache::Struct::~Struct() {}
+Eisdrache::Struct::~Struct() { name.clear(); }
 
 Eisdrache::Struct &Eisdrache::Struct::operator=(const Struct &copy) {
+    name = copy.name;
     type = copy.type;
     elements = copy.elements;
     eisdrache = copy.eisdrache;
@@ -303,6 +306,13 @@ Eisdrache::Local &Eisdrache::Struct::allocate(std::string name) {
 
 Eisdrache::Ty *Eisdrache::Struct::getPtrTy() { return eisdrache->addTy(new Ty(eisdrache, this, 1)); }
 
+Eisdrache::Func *Eisdrache::Struct::createMemberFunc(Ty *type, std::string name, Ty::Map args) {
+    Ty::Map processed = {{"this", getPtrTy()}};
+    for (Ty::Map::value_type &x : args)
+        processed[x.first] = x.second;
+    return &eisdrache->declareFunction(type, this->name+"_"+name, processed, true);
+}
+
 /// EISDRACHE ARRAY ///
 
 Eisdrache::Array::Array(Eisdrache *eisdrache, Ty *elementTy, std::string name) {
@@ -318,29 +328,25 @@ Eisdrache::Array::Array(Eisdrache *eisdrache, Ty *elementTy, std::string name) {
     });
 
     { // get_buffer
-    get_buffer = &eisdrache->declareFunction(bufferTy, name+"_get_buffer", 
-        {{"this", self->getPtrTy()}}, true);
+    get_buffer = self->createMemberFunc(bufferTy, "get_buffer");
     Local &buffer = eisdrache->getElementVal(get_buffer->arg(0), 0, "buffer");
     eisdrache->createRet(buffer);
     }
 
     { // get_size
-    get_size = &eisdrache->declareFunction(eisdrache->getSizeTy(), name+"_get_size", 
-        {{"this", self->getPtrTy()}}, true);
+    get_size = self->createMemberFunc(eisdrache->getSizeTy(), "get_size");
     Local &size = eisdrache->getElementVal(get_size->arg(0), 1, "size");
     eisdrache->createRet(size);
     }
 
     { // get_max
-    get_max = &eisdrache->declareFunction(eisdrache->getSizeTy(), name+"_get_max",
-        {{"this", self->getPtrTy()}}, true);
+    get_max = self->createMemberFunc(eisdrache->getSizeTy(), "get_max");
     Local &max = eisdrache->getElementVal(get_max->arg(0), 2, "max");
     eisdrache->createRet(max);
     }
     
     { // get_factor
-    get_factor = &eisdrache->declareFunction(eisdrache->getSizeTy(), name+"_get_factor",
-        {{"this", self->getPtrTy()}}, true);
+    get_factor = self->createMemberFunc(eisdrache->getSizeTy(), "get_factor");
     Local &factor = eisdrache->getElementVal(get_factor->arg(0), 3, "factor");
     eisdrache->createRet(factor);
     }

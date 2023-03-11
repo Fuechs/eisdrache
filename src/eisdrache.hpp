@@ -240,7 +240,19 @@ public:
         // get the pointer to this type
         Ty *getPtrTy();
 
+        /**
+         * @brief Create a member function of this struct.
+         *      Automatically adds `ptr this` as first parameter.
+         * 
+         * @param type Type of returned value
+         * @param name Function name
+         * @param args Additional parameters
+         * @return Func * 
+         */
+        Func *createMemberFunc(Ty *type, std::string name, Ty::Map args = Ty::Map());
+
     private:
+        std::string name;
         StructType *type;
         Ty::Vec elements;
 
