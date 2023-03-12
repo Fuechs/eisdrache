@@ -309,7 +309,7 @@ Eisdrache::Ty *Eisdrache::Struct::getPtrTy() { return eisdrache->addTy(new Ty(ei
 Eisdrache::Func *Eisdrache::Struct::createMemberFunc(Ty *type, std::string name, Ty::Map args) {
     Ty::Map processed = {{"this", getPtrTy()}};
     for (Ty::Map::value_type &x : args)
-        processed[x.first] = x.second;
+        processed.push_back(x);
     return &eisdrache->declareFunction(type, this->name+"_"+name, processed, true);
 }
 
@@ -333,10 +333,26 @@ Eisdrache::Array::Array(Eisdrache *eisdrache, Ty *elementTy, std::string name) {
     eisdrache->createRet(buffer);
     }
 
+    { // set_buffer
+    set_buffer = self->createMemberFunc(eisdrache->getVoidTy(), "set_buffer",
+        {{"buffer", bufferTy}});
+    Local &buffer_ptr = eisdrache->getElementPtr(set_buffer->arg(0), 0, "buffer_ptr");
+    eisdrache->storeValue(buffer_ptr, set_buffer->arg(1));
+    eisdrache->createRet();
+    }
+
     { // get_size
     get_size = self->createMemberFunc(eisdrache->getSizeTy(), "get_size");
     Local &size = eisdrache->getElementVal(get_size->arg(0), 1, "size");
     eisdrache->createRet(size);
+    }
+
+    { // set_size
+    set_size = self->createMemberFunc(eisdrache->getVoidTy(), "set_size",
+        {{"size", eisdrache->getSizeTy()}});
+    Local &size_ptr = eisdrache->getElementPtr(set_size->arg(0), 1, "size_ptr");
+    eisdrache->storeValue(size_ptr, set_size->arg(1));
+    eisdrache->createRet();
     }
 
     { // get_max
@@ -344,11 +360,41 @@ Eisdrache::Array::Array(Eisdrache *eisdrache, Ty *elementTy, std::string name) {
     Local &max = eisdrache->getElementVal(get_max->arg(0), 2, "max");
     eisdrache->createRet(max);
     }
+
+    { // set_max
+    set_max = self->createMemberFunc(eisdrache->getVoidTy(), "set_max",
+        {{"max", eisdrache->getSizeTy()}});
+    Local &max_ptr = eisdrache->getElementPtr(set_max->arg(0), 1, "max_ptr");
+    eisdrache->storeValue(max_ptr, set_max->arg(1));
+    eisdrache->createRet();
+    }
     
     { // get_factor
     get_factor = self->createMemberFunc(eisdrache->getSizeTy(), "get_factor");
     Local &factor = eisdrache->getElementVal(get_factor->arg(0), 3, "factor");
     eisdrache->createRet(factor);
+    }
+
+    { // set_factor
+    set_factor = self->createMemberFunc(eisdrache->getVoidTy(), "set_factor",
+        {{"factor", eisdrache->getSizeTy()}});
+    Local &factor_ptr = eisdrache->getElementPtr(set_factor->arg(0), 1, "factor_ptr");
+    eisdrache->storeValue(factor_ptr, set_factor->arg(1));
+    eisdrache->createRet();
+    }
+
+    { // constructor
+    constructor = self->createMemberFunc(eisdrache->getVoidTy(), "constructor");
+    set_buffer->call({constructor->arg(0).getValuePtr(), eisdrache->getNullPtr(bufferTy)});
+    set_size->call({constructor->arg(0).getValuePtr(), eisdrache->getInt(64, 0)});
+    set_max->call({constructor->arg(0).getValuePtr(), eisdrache->getInt(64, 0)});
+    set_factor->call({constructor->arg(0).getValuePtr(), eisdrache->getInt(64, 16)});
+    eisdrache->createRet();
+    }
+
+    { // destructor
+    destructor = self->createMemberFunc(eisdrache->getVoidTy(), "destructor");
+    eisdrache->createRet();
     }
 }
 
@@ -361,10 +407,18 @@ Eisdrache::Local &Eisdrache::Array::allocate(std::string name) {
 Eisdrache::Local &Eisdrache::Array::call(Member callee, ValueVec args, std::string name) {
     switch (callee) {
         case GET_BUFFER:    return get_buffer->call(args, name);
+        case SET_BUFFER:    return set_buffer->call(args, name);
         case GET_SIZE:      return get_size->call(args, name);
+        case SET_SIZE:      return set_size->call(args, name);
         case GET_MAX:       return get_max->call(args, name);
+        case SET_MAX:       return set_max->call(args, name);
         case GET_FACTOR:    return get_factor->call(args, name);
-        default:            Eisdrache::complain("Eisdrache::Array::call(): Callee not implemented.");
+        case SET_FACTOR:    return set_factor->call(args, name);
+        case CONSTRUCTOR:   return constructor->call(args, name);
+        case DESTRUCTOR:    return destructor->call(args, name);
+        default:            
+            Eisdrache::complain("Eisdrache::Array::call(): Callee not implemented.");
+            return eisdrache->getCurrentParent().arg(0); // silence warning
     }
 }
 
@@ -445,12 +499,14 @@ ConstantFP *Eisdrache::getFloat(double value) { return ConstantFP::get(*context,
 
 Constant *Eisdrache::getLiteral(std::string value, std::string name) { return builder->CreateGlobalStringPtr(value, name); }
 
+ConstantPointerNull *Eisdrache::getNullPtr(Ty *ptrTy) { return ConstantPointerNull::get(dyn_cast<PointerType>(ptrTy->getTy())); }
+
 /// FUNCTIONS ///
 
-Eisdrache::Func &Eisdrache::declareFunction(Ty *type, std::string name, Ty::Vec parameters) {
+Eisdrache::Func &Eisdrache::declareFunction(Ty *type, std::string name, Ty::Vec parameters) {   
     Ty::Map parsedParams = Ty::Map();
     for (Ty *&param : parameters)
-        parsedParams[std::to_string(parsedParams.size())] = param;
+        parsedParams.push_back({std::to_string(parsedParams.size()), param});
     functions[name] = Func(this, type, name, parsedParams);
     parent = &functions.at(name);
     return *parent;
@@ -495,7 +551,9 @@ StoreInst *Eisdrache::storeValue(Local &local, Local &value) {
     if (!local.getTy()->isPtrTy())
         return Eisdrache::complain("Eisdrache::storeValue(): Local is not a pointer (%"+local.getName()+").");
 
-    if (***local.getTy() != *value.getTy() 
+    Ty *storeType = addTy(**local.getTy());
+
+    if (storeType != value.getTy() 
     && ((!local.getTy()->isFloatTy() 
     && !value.getTy()->isFloatTy())
     || value.getTy()->isPtrTy()))

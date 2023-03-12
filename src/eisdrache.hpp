@@ -73,7 +73,8 @@ public:
     class Ty {
     public:
         using Vec = std::vector<Ty *>;
-        using Map = std::map<std::string, Ty *>;
+        using OldMap = std::map<std::string, Ty *>;
+        using Map = std::vector<std::pair<std::string, Ty *>>;
 
         Ty(Eisdrache *eisdrache, Type *llvmTy);
         Ty(Eisdrache *eisdrache = nullptr, size_t bit = 0, size_t ptrDepth = 0, bool isFloat = false, bool isSigned = false);
@@ -263,9 +264,15 @@ public:
     public:
         enum Member {
             GET_BUFFER,
+            SET_BUFFER,
             GET_SIZE,
+            SET_SIZE,
             GET_MAX,
+            SET_MAX,
             GET_FACTOR,
+            SET_FACTOR,
+            CONSTRUCTOR,
+            DESTRUCTOR,
         };
 
         Array(Eisdrache *eisdrache = nullptr, Ty *elementTy = nullptr, std::string name = "");
@@ -281,9 +288,15 @@ public:
         Ty *bufferTy;
         
         Func *get_buffer = nullptr;
+        Func *set_buffer = nullptr;
         Func *get_size = nullptr;
+        Func *set_size = nullptr;
         Func *get_max = nullptr;
+        Func *set_max = nullptr;
         Func *get_factor = nullptr;
+        Func *set_factor = nullptr;
+        Func *constructor = nullptr;
+        Func *destructor = nullptr;
 
         Eisdrache *eisdrache;
     };
@@ -335,6 +348,7 @@ public:
     Value *getNegative(ConstantInt *value);
     ConstantFP *getFloat(double value);
     Constant *getLiteral(std::string value, std::string name = "");
+    ConstantPointerNull *getNullPtr(Ty *ptrTy);
 
     /// FUNCTIONS ///
     
