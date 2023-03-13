@@ -121,6 +121,12 @@ bool Eisdrache::Ty::isSignedTy() const { return isSigned; }
 
 bool Eisdrache::Ty::isPtrTy() const { return ptrDepth > 0; }
 
+bool Eisdrache::Ty::isValidRHS(const Ty *comp) const {
+    return bit == comp->bit
+        && isFloat == comp->isFloat
+        && isPtrTy() == comp->isPtrTy();
+}
+
 /// EISDRACHE LOCAL ///
 
 Eisdrache::Local::Local(Eisdrache *eisdrache, Constant *constant) 
@@ -430,6 +436,23 @@ Eisdrache::Array::Array(Eisdrache *eisdrache, Ty *elementTy, std::string name) {
     eisdrache->setBlock(free_close);
     eisdrache->createRet();
     }
+
+    // FIXME: SEGMENTATION FAULT
+    { // resize
+    resize = self->createMemberFunc(eisdrache->getVoidTy(), "resize",
+        {{"new_size", eisdrache->getSizeTy()}});
+    Local byteSize = Local(eisdrache, eisdrache->getInt(64, elementTy->getBit() / 8));
+    Local &bytes = eisdrache->binaryOp(MUL, resize->arg(1), byteSize, "bytes");
+    Local &new_buffer = malloc->call({bytes.getValuePtr()}, "new_buffer");
+    Local &buffer = get_buffer->call({resize->arg(0).getValuePtr()}, "buffer");
+    Local &size = get_size->call({resize->arg(0).getValuePtr()}, "size");
+    memcpy->call({new_buffer.getValuePtr(), buffer.getValuePtr(), size.getValuePtr()});
+    free->call({buffer.getValuePtr()});
+    set_buffer->call({resize->arg(0).getValuePtr(), new_buffer.getValuePtr()});
+    Local &max_ptr = eisdrache->getElementPtr(resize->arg(0), 3, "max_ptr");
+    eisdrache->storeValue(max_ptr, resize->arg(1));
+    eisdrache->createRet();
+    }
 }
 
 Eisdrache::Array::~Array() { name.clear(); }
@@ -450,6 +473,7 @@ Eisdrache::Local &Eisdrache::Array::call(Member callee, ValueVec args, std::stri
         case SET_FACTOR:    return set_factor->call(args, name);
         case CONSTRUCTOR:   return constructor->call(args, name);
         case DESTRUCTOR:    return destructor->call(args, name);
+        case RESIZE:        return resize->call(args, name);
         default:            
             Eisdrache::complain("Eisdrache::Array::call(): Callee not implemented.");
             return eisdrache->getCurrentParent().arg(0); // silence warning
@@ -674,7 +698,7 @@ Eisdrache::Local &Eisdrache::binaryOp(Op op, Local &LHS, Local &RHS, std::string
     Local &r = RHS.loadValue(false, RHS.getName()+"_rhs_load");
     Ty *ty = l.getTy();
     Local bop = Local(this, ty); 
-    if (ty != r.getTy())
+    if (!ty->isValidRHS(r.getTy()))
         Eisdrache::complain("Eisdrache::binaryOp(): LHS and RHS types differ.");
 
     switch (op) {

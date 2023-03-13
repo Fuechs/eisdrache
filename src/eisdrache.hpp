@@ -103,6 +103,7 @@ public:
         bool isFloatTy() const;
         bool isSignedTy() const;
         bool isPtrTy() const;
+        bool isValidRHS(const Ty *comp) const;
 
     private:
         size_t bit;
@@ -281,6 +282,7 @@ public:
             SET_FACTOR,
             CONSTRUCTOR,
             DESTRUCTOR,
+            RESIZE,
         };
 
         Array(Eisdrache *eisdrache = nullptr, Ty *elementTy = nullptr, std::string name = "");
@@ -305,6 +307,7 @@ public:
         Func *set_factor = nullptr;
         Func *constructor = nullptr;
         Func *destructor = nullptr;
+        Func *resize = nullptr;
 
         Eisdrache *eisdrache;
     };
