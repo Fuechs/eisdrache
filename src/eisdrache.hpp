@@ -56,6 +56,13 @@ public:
         AND,    // bit and              &
         LSH,    // left bit shift       <<
         RSH,    // right bit shift      >>
+
+        EQU,    // equals               ==
+        NEQ,    // not equals           !=
+        LES,    // less than            <
+        LTE,     // less than equals     <=   
+        GRE,    // greater than         >
+        GTE,    // greater than equals  >=   
     };
 
     class Struct;
@@ -344,10 +351,15 @@ public:
     /// VALUES ///
 
     ConstantInt *getBool(bool value);
+
     ConstantInt *getInt(size_t bit, uint64_t value);
+    
     Value *getNegative(ConstantInt *value);
+    
     ConstantFP *getFloat(double value);
+    
     Constant *getLiteral(std::string value, std::string name = "");
+    
     ConstantPointerNull *getNullPtr(Ty *ptrTy);
 
     /// FUNCTIONS ///
@@ -447,7 +459,6 @@ public:
      */
     StoreInst *storeValue(Local &local, Constant *value);
 
-    
     /**
      * @brief Create an instruction for the future assignment of a local
      * 
@@ -542,6 +553,15 @@ public:
     ReturnInst *createRet(Constant *value, BasicBlock *next = nullptr);
 
     /**
+     * @brief Create a block and set insert point to it.
+     * 
+     * @param name (optional) Name of the block
+     * @param insert (optional) Start insertion at this block
+     * @return BasicBlock * 
+     */
+    BasicBlock *createBlock(std::string name = "", bool insert = false);
+
+    /**
      * @brief Set the current insertion block.
      * 
      * @param block The insertion block
@@ -554,9 +574,37 @@ public:
      * @param op Operation
      * @param LHS Left-Hand-Side
      * @param RHS Right-Hand-Side
+     * @param name (optional) Name of the result
      * @return Local & - Result 
      */
-    Local &binaryOp(Op op, Local &LHS, Local &RHS); 
+    Local &binaryOp(Op op, Local &LHS, Local &RHS, std::string name = ""); 
+
+    /**
+     * @brief Bitcast a pointer to a type.
+     * 
+     * @param ptr The original pointer 
+     * @param to The destination type
+     * @param name (optional) Name of the returned pointer
+     * @return Local & - The returned pointer from the bitcast
+     */
+    Local &bitCast(Local &ptr, Ty *to, std::string name = "");
+
+    /**
+     * @brief Jump to block.
+     * 
+     * @param block 
+     * @return BranchInst *
+     */
+    BranchInst *jump(BasicBlock *block);
+    /**
+     * @brief Jump to `then` if condition is true, else jump to `else´.
+     * 
+     * @param condition The condition
+     * @param then The `then` block
+     * @param else_ (optional) The `else` block
+     * @return BranchInst *
+     */
+    BranchInst *jump(Local &condition, BasicBlock *then, BasicBlock *else_ = nullptr);
 
     /// GETTER ///
 
@@ -605,6 +653,13 @@ public:
      */
     Ty *addTy(Ty *ty);
 
+    /**
+     * @brief Get the pointer to a function by its name.
+     * 
+     * @param name Name of the function
+     * @return Func * - Pointer to the found function.  
+     */
+    Func *getFunc(std::string name);
 
 
 private:

@@ -327,6 +327,23 @@ Eisdrache::Array::Array(Eisdrache *eisdrache, Ty *elementTy, std::string name) {
         eisdrache->getSizeTy(),     // i64 factor
     });
 
+    Func *malloc = nullptr;
+    if (!(malloc = eisdrache->getFunc("malloc")))
+        malloc = &eisdrache->declareFunction(eisdrache->getUnsignedPtrTy(8), "malloc", 
+            {eisdrache->getSizeTy()});
+
+    Func *free = nullptr;
+    if (!(free = eisdrache->getFunc("free")))
+        free = &eisdrache->declareFunction(eisdrache->getVoidTy(), "free",
+            {eisdrache->getUnsignedPtrTy(8)});
+
+    Func *memcpy = nullptr;
+    if (!(memcpy = eisdrache->getFunc("memcpy")))
+        memcpy = &eisdrache->declareFunction(eisdrache->getUnsignedPtrTy(8), "memcpy",
+            {eisdrache->getUnsignedPtrTy(8), 
+                eisdrache->getUnsignedPtrTy(8), 
+                eisdrache->getSizeTy()});
+
     { // get_buffer
     get_buffer = self->createMemberFunc(bufferTy, "get_buffer");
     Local &buffer = eisdrache->getElementVal(get_buffer->arg(0), 0, "buffer");
@@ -385,6 +402,8 @@ Eisdrache::Array::Array(Eisdrache *eisdrache, Ty *elementTy, std::string name) {
 
     { // constructor
     constructor = self->createMemberFunc(eisdrache->getVoidTy(), "constructor");
+    (**constructor)->setCallingConv(CallingConv::Fast);
+    (**constructor)->setDoesNotThrow();
     set_buffer->call({constructor->arg(0).getValuePtr(), eisdrache->getNullPtr(bufferTy)});
     set_size->call({constructor->arg(0).getValuePtr(), eisdrache->getInt(64, 0)});
     set_max->call({constructor->arg(0).getValuePtr(), eisdrache->getInt(64, 0)});
@@ -394,6 +413,19 @@ Eisdrache::Array::Array(Eisdrache *eisdrache, Ty *elementTy, std::string name) {
 
     { // destructor
     destructor = self->createMemberFunc(eisdrache->getVoidTy(), "destructor");
+    (**destructor)->setCallingConv(CallingConv::Fast);
+    (**destructor)->setDoesNotThrow();
+    BasicBlock *free_begin = eisdrache->createBlock("free_begin");
+    BasicBlock *free_close = eisdrache->createBlock("free_close");
+    Local &buffer = get_buffer->call({destructor->arg(0).getValuePtr()}, "buffer");
+    Local &cond = destructor->addLocal(Local(eisdrache, eisdrache->getBoolTy(), 
+        eisdrache->getBuilder()->CreateICmpNE(buffer.getValuePtr(), eisdrache->getNullPtr(bufferTy), "cond")));
+    eisdrache->jump(cond, free_begin, free_close);
+    eisdrache->setBlock(free_begin);
+    Local &buffer_cast = eisdrache->bitCast(buffer, eisdrache->getUnsignedPtrTy(8), "buffer_cast");
+    free->call({buffer.getValuePtr()});
+    eisdrache->jump(free_close);
+    eisdrache->setBlock(free_close);
     eisdrache->createRet();
     }
 }
@@ -624,11 +656,18 @@ ReturnInst *Eisdrache::createRet(Constant *value, BasicBlock *next) {
     return inst;
 }
 
+BasicBlock *Eisdrache::createBlock(std::string name, bool insert) {
+    BasicBlock *BB = BasicBlock::Create(*context, name, **parent);
+    if (insert)
+        setBlock(BB);
+    return BB;
+}
+
 void Eisdrache::setBlock(BasicBlock *block) {
     builder->SetInsertPoint(block);
 }
 
-Eisdrache::Local &Eisdrache::binaryOp(Op op, Local &LHS, Local &RHS) {
+Eisdrache::Local &Eisdrache::binaryOp(Op op, Local &LHS, Local &RHS, std::string name) {
     Local &l = LHS.loadValue(false, LHS.getName()+"_lhs_load");
     Local &r = RHS.loadValue(false, RHS.getName()+"_rhs_load");
     Ty *ty = l.getTy();
@@ -638,41 +677,118 @@ Eisdrache::Local &Eisdrache::binaryOp(Op op, Local &LHS, Local &RHS) {
 
     switch (op) {
         case ADD:
+            if (name.empty()) name = "addtmp";
             if (ty->isFloatTy()) 
-                bop.setPtr(builder->CreateFAdd(l.getValuePtr(), r.getValuePtr(), "addtmp"));
+                bop.setPtr(builder->CreateFAdd(l.getValuePtr(), r.getValuePtr(), name));
             else
-                bop.setPtr(builder->CreateAdd(l.getValuePtr(), r.getValuePtr(), "addtmp"));
+                bop.setPtr(builder->CreateAdd(l.getValuePtr(), r.getValuePtr(), name));
             break;
         case SUB:
+            if (name.empty()) name = "subtmp";
             if (ty->isFloatTy())
-                bop.setPtr(builder->CreateFSub(l.getValuePtr(), r.getValuePtr(), "subtmp"));
+                bop.setPtr(builder->CreateFSub(l.getValuePtr(), r.getValuePtr(), name));
             else
-                bop.setPtr(builder->CreateSub(l.getValuePtr(), r.getValuePtr(), "subtmp"));
+                bop.setPtr(builder->CreateSub(l.getValuePtr(), r.getValuePtr(), name));
             break;
         case MUL:
+            if (name.empty()) name = "multmp";
             if (ty->isFloatTy())
-                bop.setPtr(builder->CreateFMul(l.getValuePtr(), r.getValuePtr(), "multmp"));
+                bop.setPtr(builder->CreateFMul(l.getValuePtr(), r.getValuePtr(), name));
             else
-                bop.setPtr(builder->CreateMul(l.getValuePtr(), r.getValuePtr(), "multmp"));
+                bop.setPtr(builder->CreateMul(l.getValuePtr(), r.getValuePtr(), name));
             break;
         case DIV:
+            if (name.empty()) name = "divtmp";
             if (ty->isFloatTy())
-                bop.setPtr(builder->CreateFDiv(l.getValuePtr(), r.getValuePtr(), "divtmp"));
+                bop.setPtr(builder->CreateFDiv(l.getValuePtr(), r.getValuePtr(), name));
             else if (ty->isSignedTy())
-                bop.setPtr(builder->CreateSDiv(l.getValuePtr(), r.getValuePtr(), "divtmp"));
+                bop.setPtr(builder->CreateSDiv(l.getValuePtr(), r.getValuePtr(), name));
             else
-                bop.setPtr(builder->CreateUDiv(l.getValuePtr(), r.getValuePtr(), "divtmp"));
+                bop.setPtr(builder->CreateUDiv(l.getValuePtr(), r.getValuePtr(), name));
             break;
-        case OR:    bop.setPtr(builder->CreateOr(l.getValuePtr(), r.getValuePtr(), "ortmp")); break;
-        case XOR:   bop.setPtr(builder->CreateXor(l.getValuePtr(), r.getValuePtr(), "xortmp")); break;
-        case AND:   bop.setPtr(builder->CreateAnd(l.getValuePtr(), r.getValuePtr(), "andtmp")); break;
-        case LSH:   bop.setPtr(builder->CreateShl(l.getValuePtr(), r.getValuePtr(), "lshtmp")); break;
-        case RSH:   bop.setPtr(builder->CreateLShr(l.getValuePtr(), r.getValuePtr(), "rshtmp")); break;
+        case OR:    
+            bop.setPtr(builder->CreateOr(l.getValuePtr(), r.getValuePtr(), name.empty() ? "ortmp" : name)); 
+            break;
+        case XOR:   
+            bop.setPtr(builder->CreateXor(l.getValuePtr(), r.getValuePtr(), name.empty() ? "xortmp" : name)); 
+            break;
+        case AND:   
+            bop.setPtr(builder->CreateAnd(l.getValuePtr(), r.getValuePtr(), name.empty() ? "andtmp" : name)); 
+            break;
+        case LSH:   
+            bop.setPtr(builder->CreateShl(l.getValuePtr(), r.getValuePtr(), name.empty() ? "lshtmp" : name)); 
+            break;
+        case RSH:   
+            bop.setPtr(builder->CreateLShr(l.getValuePtr(), r.getValuePtr(), name.empty() ? "rshtmp" : name)); 
+            break;
+        case EQU:
+            if (name.empty()) name = "equtmp";
+            if (ty->isFloatTy())
+                bop.setPtr(builder->CreateFCmpOEQ(l.getValuePtr(), r.getValuePtr(), name)); 
+            else
+                bop.setPtr(builder->CreateICmpEQ(l.getValuePtr(), r.getValuePtr(), name));
+            break;
+        case NEQ:
+            if (name.empty()) name = "neqtmp";
+            if (ty->isFloatTy())
+                bop.setPtr(builder->CreateFCmpONE(l.getValuePtr(), r.getValuePtr(), name));
+            else
+                bop.setPtr(builder->CreateICmpNE(l.getValuePtr(), r.getValuePtr(), name));
+            break;
+        case LES:
+            if (name.empty()) name = "lestmp";
+            if (ty->isFloatTy())
+                bop.setPtr(builder->CreateFCmpOLT(l.getValuePtr(), r.getValuePtr(), name));
+            else if (ty->isSignedTy())
+                bop.setPtr(builder->CreateICmpSLT(l.getValuePtr(), r.getValuePtr(), name));
+            else
+                bop.setPtr(builder->CreateICmpULT(l.getValuePtr(), r.getValuePtr(), name));
+            break;
+        case LTE:
+            if (name.empty()) name = "ltetmp";
+            if (ty->isFloatTy())
+                bop.setPtr(builder->CreateFCmpOLE(l.getValuePtr(), r.getValuePtr(), name));
+            else if (ty->isSignedTy())
+                bop.setPtr(builder->CreateICmpSLE(l.getValuePtr(), r.getValuePtr(), name));
+            else
+                bop.setPtr(builder->CreateICmpULE(l.getValuePtr(), r.getValuePtr(), name));
+            break;
+        case GRE:
+            if (name.empty()) name = "gretmp";
+            if (ty->isFloatTy())
+                bop.setPtr(builder->CreateFCmpOGT(l.getValuePtr(), r.getValuePtr(), name));
+            else if (ty->isSignedTy())
+                bop.setPtr(builder->CreateICmpSGT(l.getValuePtr(), r.getValuePtr(), name));
+            else
+                bop.setPtr(builder->CreateICmpUGT(l.getValuePtr(), r.getValuePtr(), name));
+            break;
+        case GTE:
+            if (name.empty()) name = "gtetmp";
+            if (ty->isFloatTy())
+                bop.setPtr(builder->CreateFCmpOGE(l.getValuePtr(), r.getValuePtr(), name));
+            else if (ty->isSignedTy())
+                bop.setPtr(builder->CreateICmpSGE(l.getValuePtr(), r.getValuePtr(), name));
+            else
+                bop.setPtr(builder->CreateICmpUGE(l.getValuePtr(), r.getValuePtr(), name));
+            break;
         default:
-            Eisdrache::complain("Eisdrache::binaryOp(): Operation ("+std::to_string(op)+") not implemented.");
+            Eisdrache::complain("Eisdrache::binaryOp(): Operation (ID "+std::to_string(op)+") not implemented.");
     }
 
     return parent->addLocal(bop);
+}
+
+Eisdrache::Local &Eisdrache::bitCast(Local &ptr, Ty *to, std::string name) {
+    Value *cast = builder->CreateBitCast(ptr.getValuePtr(), to->getTy(), name);
+    return parent->addLocal(Local(this, to, cast));
+}
+
+BranchInst *Eisdrache::jump(BasicBlock *next) {
+    return builder->CreateBr(next);
+}
+
+BranchInst *Eisdrache::jump(Local &condition, BasicBlock *then, BasicBlock *else_) {
+    return builder->CreateCondBr(condition.loadValue().getValuePtr(), then, else_);
 }
 
 /// GETTER ///
@@ -693,6 +809,10 @@ Eisdrache::Ty *Eisdrache::addTy(Ty *ty) {
             return cty;
     types.push_back(ty);
     return types.back();
+}
+
+Eisdrache::Func *Eisdrache::getFunc(std::string name) {
+    return (functions.contains(name) ? &functions[name] : nullptr);
 }
 
 /// PRIVATE ///
