@@ -99,6 +99,7 @@ public:
         // get this type with pointer depth + 1
         Ty *getPtrTo() const;
         Struct &getStructTy() const;
+        size_t getBit() const;
         bool isFloatTy() const;
         bool isSignedTy() const;
         bool isPtrTy() const;
@@ -605,6 +606,16 @@ public:
      * @return BranchInst *
      */
     BranchInst *jump(Local &condition, BasicBlock *then, BasicBlock *else_ = nullptr);
+
+    /**
+     * @brief Type cast a value.
+     * 
+     * @param local The value
+     * @param to The destination type
+     * @param name (optional) The name of the casted value
+     * @return Local & 
+     */
+    Local &typeCast(Local &local, Ty *to, std::string name = "");
 
     /// GETTER ///
 

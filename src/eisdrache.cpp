@@ -113,6 +113,8 @@ Eisdrache::Struct &Eisdrache::Ty::getStructTy() const {
     return *structTy;
 }
 
+size_t Eisdrache::Ty::getBit() const { return bit; }
+
 bool Eisdrache::Ty::isFloatTy() const { return isFloat; }
 
 bool Eisdrache::Ty::isSignedTy() const { return isSigned; }
@@ -505,11 +507,11 @@ Eisdrache::Ty *Eisdrache::getSignedPtrTy(size_t bit) { return addTy(new Ty(this,
 
 Eisdrache::Ty *Eisdrache::getSignedPtrPtrTy(size_t bit) { return addTy(new Ty(this, bit, 2, false, true)); }
 
-Eisdrache::Ty *Eisdrache::getUnsignedTy(size_t bit) { return addTy(new Ty(this, bit, 0, false, true)); }
+Eisdrache::Ty *Eisdrache::getUnsignedTy(size_t bit) { return addTy(new Ty(this, bit, 0, false)); }
 
-Eisdrache::Ty *Eisdrache::getUnsignedPtrTy(size_t bit) { return addTy(new Ty(this, bit, 1, false, true)); }
+Eisdrache::Ty *Eisdrache::getUnsignedPtrTy(size_t bit) { return addTy(new Ty(this, bit, 1, false)); }
 
-Eisdrache::Ty *Eisdrache::getUnsignedPtrPtrTy(size_t bit) { return addTy(new Ty(this, bit, 2, false, true)); }
+Eisdrache::Ty *Eisdrache::getUnsignedPtrPtrTy(size_t bit) { return addTy(new Ty(this, bit, 2, false)); }
 
 Eisdrache::Ty *Eisdrache::getFloatTy(size_t bit) { return addTy(new Ty(this, bit, 0, true, true)); }
 
@@ -583,7 +585,7 @@ StoreInst *Eisdrache::storeValue(Local &local, Local &value) {
     if (!local.getTy()->isPtrTy())
         return Eisdrache::complain("Eisdrache::storeValue(): Local is not a pointer (%"+local.getName()+").");
 
-    Ty *storeType = addTy(**local.getTy());
+    Ty *storeType = **local.getTy();
 
     if (storeType != value.getTy() 
     && ((!local.getTy()->isFloatTy() 
@@ -789,6 +791,65 @@ BranchInst *Eisdrache::jump(BasicBlock *next) {
 
 BranchInst *Eisdrache::jump(Local &condition, BasicBlock *then, BasicBlock *else_) {
     return builder->CreateCondBr(condition.loadValue().getValuePtr(), then, else_);
+}
+
+Eisdrache::Local &Eisdrache::typeCast(Local &value, Ty *to, std::string name) {
+    if (*value.getTy() == *to)
+        complain("Eisdrache::typeCast(): Redundant type cast.");
+
+    Value *v = value.loadValue().getValuePtr();
+    Ty *from = value.getTy();
+    Local &cast = parent->addLocal(Local(this, to));
+    
+    if (from->isFloatTy()) {
+        if (to->isFloatTy()) {                                                      // FLOAT -> FLOAT
+            if (from->getBit() < to->getBit())
+                cast.setPtr(builder->CreateFPExt(v, to->getTy(), name));
+            else
+                cast.setPtr(builder->CreateFPTrunc(v, to->getTy(), name));
+        } else if (to->isSignedTy())                                                // FLOAT -> SIGNED
+            cast.setPtr(builder->CreateFPToSI(v, to->getTy(), name));
+        else if (to->isPtrTy())                                                     // FLOAT -> POINTER
+            complain("Eisdrache::typeCast(): Invalid type cast (Float -> Pointer).");
+        else                                                                        // FLOAT -> UNSIGNED
+            cast.setPtr(builder->CreateFPToUI(v, to->getTy(), name));
+    } else if (from->isSignedTy()) {
+        if (to->isFloatTy())                                                        // SIGNED -> FLOAT
+            cast.setPtr(builder->CreateSIToFP(v, to->getTy(), name));
+        else if (to->isPtrTy())                                                     // SIGNED -> POINTER
+            cast.setPtr(builder->CreateIntToPtr(v, to->getTy(), name));
+        else if (to->isSignedTy()) {                                                // SIGNED -> SIGNED
+            if (from->getBit() < to->getBit())
+                cast.setPtr(builder->CreateSExt(v, to->getTy(), name));
+            else
+                cast.setPtr(builder->CreateTrunc(v, to->getTy(), name));
+        } else {                                                                    // SIGNED -> UNSIGNED
+            if (from->getBit() < to->getBit())
+                cast.setPtr(builder->CreateZExt(v, to->getTy(), name));
+            else
+                cast.setPtr(builder->CreateTrunc(v, to->getTy(), name));
+        }
+    } else if (from->isPtrTy()) {
+        if (to->isFloatTy())                                                        // POINTER -> FLOAT
+            complain("Eisdrache::typeCast(): Invalid type cast (Pointer -> Float).");
+        else if (to->isPtrTy())                                                     // POINTER -> POINTER
+            return bitCast(value, to, name);
+        else 
+            cast.setPtr(builder->CreatePtrToInt(v, to->getTy(), name));             // POINTER -> INTEGER
+    } else {
+        if (to->isFloatTy())                                                        // UNSIGNED -> FLOAT
+            cast.setPtr(builder->CreateUIToFP(v, to->getTy(), name));
+        else if (to->isPtrTy()) {                                                   // UNSIGNED -> POINTER
+            cast.setPtr(builder->CreateIntToPtr(v, to->getTy(), name));
+        } else {                                                                    // UNSIGNED -> INTEGER
+            if (from->getBit() < to->getBit()) 
+                cast.setPtr(builder->CreateZExt(v, to->getTy(), name));
+            else
+                cast.setPtr(builder->CreateTrunc(v, to->getTy(), name));
+        }
+    }
+
+    return cast;
 }
 
 /// GETTER ///
