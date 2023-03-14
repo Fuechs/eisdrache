@@ -81,6 +81,7 @@ int main(void) {
 #include "eisdrache.hpp"
 
 using namespace llvm;
+using Array = Eisdrache::Array;
 
 int main(void) {
     Eisdrache::initialize();
@@ -88,7 +89,7 @@ int main(void) {
 
     // %vector = type { ptr, i64, i64, i64 }
     // ...functions...
-    Eisdrache::Array array = Eisdrache::Array(eisdrache, eisdrache->getUnsignedTy(64), "vector");  
+    Array *array = new Array(eisdrache, eisdrache->getUnsignedTy(64), "vector");  
 
     // i64 @main(i64 %argc, i8** %argv)
     Eisdrache::Func &main = eisdrache->declareFunction(eisdrache->getSignedTy(64), "main", 
