@@ -426,9 +426,7 @@ Eisdrache::Array::Array(Eisdrache *eisdrache, Ty *elementTy, std::string name) {
     BasicBlock *free_begin = eisdrache->createBlock("free_begin");
     BasicBlock *free_close = eisdrache->createBlock("free_close");
     Local &buffer = get_buffer->call({destructor->arg(0).getValuePtr()}, "buffer");
-    Local &cond = destructor->addLocal(Local(eisdrache, eisdrache->getBoolTy(), 
-        eisdrache->getBuilder()->CreateICmpNE(buffer.getValuePtr(), eisdrache->getNullPtr(bufferTy), "cond")));
-    eisdrache->jump(cond, free_begin, free_close);
+    eisdrache->jump(eisdrache->compareToNull(buffer, "cond"), free_close, free_begin);
     eisdrache->setBlock(free_begin);
     Local &buffer_cast = eisdrache->bitCast(buffer, eisdrache->getUnsignedPtrTy(8), "buffer_cast");
     free->call({buffer.getValuePtr()});
@@ -437,7 +435,6 @@ Eisdrache::Array::Array(Eisdrache *eisdrache, Ty *elementTy, std::string name) {
     eisdrache->createRet();
     }
 
-    // FIXME: SEGMENTATION FAULT
     { // resize
     resize = self->createMemberFunc(eisdrache->getVoidTy(), "resize",
         {{"new_size", eisdrache->getSizeTy()}});
@@ -450,9 +447,7 @@ Eisdrache::Array::Array(Eisdrache *eisdrache, Ty *elementTy, std::string name) {
     Local &new_buffer = malloc->call({bytes.getValuePtr()}, "new_buffer");
     Local &buffer = get_buffer->call({resize->arg(0).getValuePtr()}, "buffer");
     Local &size = get_size->call({resize->arg(0).getValuePtr()}, "size");
-    Local &cond = resize->addLocal(Local(eisdrache, eisdrache->getBoolTy(), 
-        eisdrache->getBuilder()->CreateICmpNE(buffer.getValuePtr(), eisdrache->getNullPtr(bufferTy), "cond")));
-    eisdrache->jump(cond, copy, empty);
+    eisdrache->jump(eisdrache->compareToNull(buffer, "cond"), empty, copy);
     
     eisdrache->setBlock(copy);
     memcpy->call({new_buffer.getValuePtr(), buffer.getValuePtr(), size.getValuePtr()});
@@ -896,6 +891,13 @@ Eisdrache::Local &Eisdrache::getArrayElement(Local &array, size_t index, std::st
     Value *ptr = builder->CreateGEP(array.getTy()->getTy(), array.getValuePtr(),
         {getInt(32, index)}, name);
     return parent->addLocal(Local(this, array.getTy(), ptr));
+}
+
+Eisdrache::Local &Eisdrache::compareToNull(Local &pointer, std::string name) {
+    if (!pointer.getTy()->isPtrTy())
+        complain("Eisdrache::compareToNull(): Local is not a pointer.");
+    Value *cond = builder->CreateICmpEQ(pointer.getValuePtr(), getNullPtr(pointer.getTy()), name);
+    return parent->addLocal(Local(this, getBoolTy(), cond));
 }
 
 /// GETTER ///

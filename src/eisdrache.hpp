@@ -630,6 +630,17 @@ public:
      */
     Local &getArrayElement(Local &array, size_t index, std::string name = "");
 
+    /**
+     * @brief Check wether the given pointer is a nullptr and return result.
+     * 
+     * @param pointer The pointer 
+     * @param name Name of the result
+     * @return Local &,
+     *          true: pointer == nullptr,
+     *          false: pointer != nullptr
+     */
+    Local &compareToNull(Local &pointer, std::string name = "");
+
     /// GETTER ///
 
     /**
