@@ -150,6 +150,7 @@ bool Eisdrache::Local::operator==(const Local &comp) const { return v_ptr == com
 bool Eisdrache::Local::operator==(const Value *comp) const { return v_ptr == comp; }
 
 AllocaInst *Eisdrache::Local::operator*() {
+    invokeFuture();
     if (!isAlloca())
         return complain("Eisdrache::Local::operator*(): Tried to get AllocaInst * of Value * (%"+v_ptr->getName().str()+").");
     return a_ptr;
@@ -159,11 +160,16 @@ void Eisdrache::Local::setPtr(Value *ptr) { v_ptr = ptr; }
 
 void Eisdrache::Local::setFuture(Value *future) { this->future = future; }
 
+void Eisdrache::Local::setFutureArgs(ValueVec args) { future_args = args; }
+
 void Eisdrache::Local::setTy(Ty *ty) { type = ty; }
 
 AllocaInst *Eisdrache::Local::getAllocaPtr() { return operator*(); }
 
-Value *Eisdrache::Local::getValuePtr() { return v_ptr; }
+Value *Eisdrache::Local::getValuePtr() { 
+    invokeFuture();
+    return v_ptr; 
+}
 
 Eisdrache::Ty *Eisdrache::Local::getTy() { return type; }
 
@@ -189,9 +195,22 @@ Eisdrache::Local &Eisdrache::Local::loadValue(bool force, std::string name) {
 }
 
 void Eisdrache::Local::invokeFuture() {
-    if (Function *func = dyn_cast<Function>(future))
-        future = eisdrache->getBuilder()->CreateCall(func, future_args, getName()+"_future");
+    if (!future)
+        return;
+        
+    if (Function *func = dyn_cast<Function>(future)) {
+        if (func->getReturnType()->isVoidTy()) {
+            eisdrache->getBuilder()->CreateCall(func, future_args);
+            future = nullptr;
+            future_args.clear();
+            return;
+        } else 
+            future = eisdrache->getBuilder()->CreateCall(func, future_args, getName()+"_future");
+    } 
+
     eisdrache->getBuilder()->CreateStore(future, v_ptr);
+    future = nullptr;
+    future_args.clear();
 }
 
 /// EISDRACHE FUNC ///
@@ -639,6 +658,11 @@ StoreInst *Eisdrache::storeValue(Local &local, Constant *value) {
 }
 
 void Eisdrache::createFuture(Local &local, Value *value) { local.setFuture(value); }
+
+void Eisdrache::createFuture(Local &local, Func &func, ValueVec args) {
+    local.setFuture(*func);
+    local.setFutureArgs(args);
+}
 
 /// STRUCT TYPES ///
 

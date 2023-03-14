@@ -60,7 +60,7 @@ public:
         EQU,    // equals               ==
         NEQ,    // not equals           !=
         LES,    // less than            <
-        LTE,     // less than equals     <=   
+        LTE,    // less than equals     <=   
         GRE,    // greater than         >
         GTE,    // greater than equals  >=   
     };
@@ -142,6 +142,7 @@ public:
 
         void setPtr(Value *ptr);
         void setFuture(Value *future);
+        void setFutureArgs(ValueVec args);
         void setTy(Ty *ty);
 
         AllocaInst *getAllocaPtr();
@@ -159,6 +160,13 @@ public:
          * @return Local & 
          */
         Local &loadValue(bool force = false, std::string name = "");
+        /**
+         * @brief This function should be called automatically when trying to access `v_ptr` or `a_ptr`.
+         *      However, the user can call this function themselves if required.
+         *      This function also checks wether `future` is a nullptr 
+         *          and sets `future` to nullptr once it was invoked. 
+         *      (`future_args` too)
+         */
         void invokeFuture();
 
     private:

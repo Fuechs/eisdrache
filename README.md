@@ -5,8 +5,10 @@
 
 ### Custom wrapper for the LLVM API in C++
 
-- Simplified `IRBuilder`
-- Implementation for dynamic arrays
+- Wrappers for Types `Ty`, Locals `Local`, Functions `Func` and Structures `Struct`
+- Simplified Load, GEP, Binary OP, Type Cast, Bit Cast and Branching (WIP)
+- Support for future value assignment or calls for locals
+- Implementation for dynamic arrays `Array` (WIP)
 
 #### How to Use
 
@@ -92,17 +94,23 @@ int main(void) {
     Eisdrache::Func &main = eisdrache->declareFunction(eisdrache->getSignedTy(64), "main", 
         {{"argc", eisdrache->getUnsignedTy(64)}, {"argv", eisdrache->getUnsignedPtrPtrTy(8)}}, true);
     // %list = alloca %vector
-    Eisdrache::Local &list = array.allocate("list");
+    Eisdrache::Local &list = array->allocate("list");
+    // call void @vector_constructor(ptr %list)
+    array->call(Array::CONSTRUCTOR, {list.getValuePtr()});
+    // call void @vector_resize(ptr %list, i64 2)
+    array->call(Array::RESIZE, {list.getValuePtr(), eisdrache->getInt(64, 2)});
     // %buffer = call ptr @vector_get_buffer(ptr %list)
-    array.call(array.GET_BUFFER, {list.getValuePtr()}, "buffer");
-    // %size = call i64 @vector_get_size(ptr %list);
-    array.call(array.GET_SIZE, {list.getValuePtr()}, "size");
-    // %max = call i64 @vector_get_max(ptr %list);
-    array.call(array.GET_MAX, {list.getValuePtr()}, "max");
-    // %factor = call i64 @vector_get_factor(ptr %list)
-    array.call(array.GET_FACTOR, {list.getValuePtr()}, "factor");
-    // ret i64 0
-    eisdrache->createRet(eisdrache->getInt(64, 0));
+    Eisdrache::Local &buffer = array->call(Array::GET_BUFFER, {list.getValuePtr()}, "buffer");
+    // %fst_ptr = getelementptr ptr, ptr %buffer, i32 0
+    Eisdrache::Local &fst_ptr = eisdrache->getArrayElement(buffer, 0, "fst_ptr");
+    // store i64 69, ptr %fst_ptr
+    eisdrache->storeValue(fst_ptr, eisdrache->getInt(64, 69));
+    // %fst = load i64, ptr %fst_ptr
+    Eisdrache::Local &fst = fst_ptr.loadValue(true, "fst");
+    // call void @vector_destructor(ptr %list)
+    array->call(Array::DESTRUCTOR, {list.getValuePtr()});
+    // ret i64 %fst
+    eisdrache->createRet(fst);
     eisdrache->verifyFunc(main);
 
     eisdrache->dump();
