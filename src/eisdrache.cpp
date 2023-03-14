@@ -441,13 +441,29 @@ Eisdrache::Array::Array(Eisdrache *eisdrache, Ty *elementTy, std::string name) {
     { // resize
     resize = self->createMemberFunc(eisdrache->getVoidTy(), "resize",
         {{"new_size", eisdrache->getSizeTy()}});
+    BasicBlock *copy = eisdrache->createBlock("copy");
+    BasicBlock *empty = eisdrache->createBlock("empty");
+    BasicBlock *end = eisdrache->createBlock("end"); 
+    
     Local byteSize = Local(eisdrache, eisdrache->getInt(64, elementTy->getBit() / 8));
     Local &bytes = eisdrache->binaryOp(MUL, resize->arg(1), byteSize, "bytes");
     Local &new_buffer = malloc->call({bytes.getValuePtr()}, "new_buffer");
     Local &buffer = get_buffer->call({resize->arg(0).getValuePtr()}, "buffer");
     Local &size = get_size->call({resize->arg(0).getValuePtr()}, "size");
+    Local &cond = resize->addLocal(Local(eisdrache, eisdrache->getBoolTy(), 
+        eisdrache->getBuilder()->CreateICmpNE(buffer.getValuePtr(), eisdrache->getNullPtr(bufferTy), "cond")));
+    eisdrache->jump(cond, copy, empty);
+    
+    eisdrache->setBlock(copy);
     memcpy->call({new_buffer.getValuePtr(), buffer.getValuePtr(), size.getValuePtr()});
     free->call({buffer.getValuePtr()});
+    eisdrache->jump(end);
+
+    eisdrache->setBlock(empty);
+    eisdrache->storeValue(new_buffer, eisdrache->getNullPtr(bufferTy));
+    eisdrache->jump(end);
+    
+    eisdrache->setBlock(end);
     set_buffer->call({resize->arg(0).getValuePtr(), new_buffer.getValuePtr()});
     Local &max_ptr = eisdrache->getElementPtr(resize->arg(0), 3, "max_ptr");
     eisdrache->storeValue(max_ptr, resize->arg(1));
@@ -874,6 +890,12 @@ Eisdrache::Local &Eisdrache::typeCast(Local &value, Ty *to, std::string name) {
     }
 
     return cast;
+}
+
+Eisdrache::Local &Eisdrache::getArrayElement(Local &array, size_t index, std::string name) {
+    Value *ptr = builder->CreateGEP(array.getTy()->getTy(), array.getValuePtr(),
+        {getInt(32, index)}, name);
+    return parent->addLocal(Local(this, array.getTy(), ptr));
 }
 
 /// GETTER ///

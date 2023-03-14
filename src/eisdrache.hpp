@@ -620,6 +620,16 @@ public:
      */
     Local &typeCast(Local &local, Ty *to, std::string name = "");
 
+    /**
+     * @brief Get the pointer to an element of an array.
+     * 
+     * @param array The array
+     * @param index The index of the element
+     * @param name (optional) The name of the returned pointer
+     * @return Local & 
+     */
+    Local &getArrayElement(Local &array, size_t index, std::string name = "");
+
     /// GETTER ///
 
     /**
