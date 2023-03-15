@@ -704,6 +704,12 @@ public:
      */
     Func *getFunc(std::string name);
 
+    /**
+     * @brief Set the current parent
+     * 
+     * @param func Pointer to the new parent
+     */
+    void setParent(Func *func);
 
 private:
     Eisdrache(LLVMContext *, Module *, IRBuilder<> *, std::string);

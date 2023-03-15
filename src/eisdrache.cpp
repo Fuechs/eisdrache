@@ -856,8 +856,9 @@ Eisdrache::Local &Eisdrache::typeCast(Local &value, Ty *to, std::string name) {
     if (*value.getTy() == *to)
         complain("Eisdrache::typeCast(): Redundant type cast.");
 
-    Value *v = value.loadValue().getValuePtr();
-    Ty *from = value.getTy();
+    Local &load = value.loadValue();
+    Value *v = load.getValuePtr();
+    Ty *from = load.getTy();
     Local &cast = parent->addLocal(Local(this, to));
     
     if (from->isFloatTy()) {
@@ -947,6 +948,8 @@ Eisdrache::Ty *Eisdrache::addTy(Ty *ty) {
 Eisdrache::Func *Eisdrache::getFunc(std::string name) {
     return (functions.contains(name) ? &functions[name] : nullptr);
 }
+
+void Eisdrache::setParent(Func *func) { parent = func; }
 
 /// PRIVATE ///
 
