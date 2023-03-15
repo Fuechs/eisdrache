@@ -267,7 +267,17 @@ bool Eisdrache::Func::operator==(const Func &comp) const { return func == comp.f
 
 bool Eisdrache::Func::operator==(const Function *comp) const { return func == comp; }
 
-Eisdrache::Local &Eisdrache::Func::operator[](std::string symbol) { return locals.at(symbol); }
+Eisdrache::Local &Eisdrache::Func::operator[](std::string symbol) { 
+    if (locals.contains(symbol))
+        return locals[symbol];
+
+    for (Local &param : parameters)
+        if (param.getName() == symbol)
+            return param;
+    
+    Eisdrache::complain("Eisdrache::Func::operator[]: Symbol not found: %"+symbol+".");
+    return locals.begin()->second; // silence warning
+}
 
 Function *Eisdrache::Func::operator*() { return func; }
 
@@ -638,14 +648,6 @@ Eisdrache::Local &Eisdrache::loadLocal(Local &local, std::string name) { return 
 StoreInst *Eisdrache::storeValue(Local &local, Local &value) {
     if (!local.getTy()->isPtrTy())
         return Eisdrache::complain("Eisdrache::storeValue(): Local is not a pointer (%"+local.getName()+").");
-
-    Ty *storeType = **local.getTy();
-
-    if (storeType != value.getTy() 
-    && ((!local.getTy()->isFloatTy() 
-    && !value.getTy()->isFloatTy())
-    || value.getTy()->isPtrTy()))
-        return Eisdrache::complain("Eisdrache::storeValue(): Value type does not match type of local.");
     
     return builder->CreateStore(value.getValuePtr(), local.getValuePtr());
 } 
