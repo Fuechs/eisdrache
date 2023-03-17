@@ -63,10 +63,9 @@ int main(void) {
     // %var = alloca i64
     Eisdrache::Local &var = eisdrache->declareLocal(eisdrache->getUnsignedTy(64), "var", eisdrache->getInt(64, 3));
     // store i64 3, ptr %var ; future value assigned from declaration
-    // %var_load = load i64, ptr %var
-    Eisdrache::Local &load = eisdrache->loadLocal(var);
+    // %var_load = load i64, ptr %var ; automatically loads value of local with var.loadValue()
     // ret i64 %var_load
-    eisdrache->createRet(load);
+    eisdrache->createRet(var);
     eisdrache->verifyFunc(main);
 
     eisdrache->dump();
