@@ -2,7 +2,7 @@
  * @file eisdrache.cpp
  * @author fuechs
  * @brief Eisdrache class implementation
- * @version 0.1.2
+ * @version 0.1.3
  * @date 2023-01-30
  * 
  * @copyright Copyright (c) 2023, Fuechs.
@@ -105,12 +105,18 @@ Type *Eisdrache::Ty::getTy() const {
     return Type::getIntNTy(*eisdrache->getContext(), bit);
 }
 
-Eisdrache::Ty *Eisdrache::Ty::getPtrTo() const { return eisdrache->addTy(new Ty(eisdrache, bit, ptrDepth + 1, isFloat)); }
+Eisdrache::Ty *Eisdrache::Ty::getPtrTo() const { 
+    return eisdrache->addTy(new Ty(eisdrache, bit, ptrDepth + 1, isFloat, isSigned)); 
+}
 
 Eisdrache::Struct &Eisdrache::Ty::getStructTy() const {
     if (!structTy)
         Eisdrache::complain("Eisdrache::Ty::getStructTy(): Tried to get struct type, but there is none.");
     return *structTy;
+}
+
+Eisdrache::Ty *Eisdrache::Ty::getSignedTy() const {
+    return eisdrache->addTy(new Ty(eisdrache, bit, ptrDepth, isFloat, true));
 }
 
 size_t Eisdrache::Ty::getBit() const { return bit; }
@@ -124,6 +130,7 @@ bool Eisdrache::Ty::isPtrTy() const { return ptrDepth > 0; }
 bool Eisdrache::Ty::isValidRHS(const Ty *comp) const {
     return bit == comp->bit
         && isFloat == comp->isFloat
+        && isSigned == comp->isSigned
         && isPtrTy() == comp->isPtrTy();
 }
 
@@ -750,7 +757,7 @@ Eisdrache::Local &Eisdrache::binaryOp(Op op, Local &LHS, Local &RHS, std::string
             if (name.empty()) name = "subtmp";
             if (ty->isFloatTy())
                 bop.setPtr(builder->CreateFSub(l.getValuePtr(), r.getValuePtr(), name));
-            else
+            else 
                 bop.setPtr(builder->CreateSub(l.getValuePtr(), r.getValuePtr(), name));
             break;
         case MUL:
@@ -860,8 +867,8 @@ BranchInst *Eisdrache::jump(Local &condition, BasicBlock *then, BasicBlock *else
 }
 
 Eisdrache::Local &Eisdrache::typeCast(Local &value, Ty *to, std::string name) {
-    if (*value.getTy() == *to)
-        complain("Eisdrache::typeCast(): Redundant type cast.");
+    if (*value.getTy() == *to) 
+        return value.loadValue();
 
     Local &load = value.loadValue();
     Value *v = load.getValuePtr();
@@ -931,6 +938,31 @@ Eisdrache::Local &Eisdrache::compareToNull(Local &pointer, std::string name) {
     Value *cond = builder->CreateICmpEQ(pointer.getValuePtr(), getNullPtr(pointer.getTy()), name);
     return parent->addLocal(Local(this, getBoolTy(), cond));
 }
+
+Eisdrache::Local &Eisdrache::unaryOp(Op op, Local &expr, std::string name) {
+    Local &load = expr.loadValue();
+    Ty *loadTy = load.getTy();
+    Local ret = Local(this);
+    
+    switch (op) {
+        case NEG: {
+            if (loadTy->isFloatTy())
+                ret.setPtr(builder->CreateFNeg(load.getValuePtr(), "negtmp"));
+            else
+                ret.setPtr(builder->CreateNeg(load.getValuePtr(), "negtmp"));
+            ret.setTy(loadTy->getSignedTy());
+            break;
+        }
+        case NOT: 
+            ret.setPtr(builder->CreateNot(load.getValuePtr(), "nottmp"));
+            ret.setTy(loadTy);
+            break;
+        default: 
+            complain("Eisdrache::unaryOp(): Operation not implemented.");
+    }
+
+    return parent->addLocal(ret);
+} 
 
 /// GETTER ///
 

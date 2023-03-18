@@ -2,7 +2,7 @@
  * @file eisdrache.hpp
  * @author fuechs
  * @brief Eisdrache class header
- * @version 0.1.2
+ * @version 0.1.3
  * @date 2023-01-30
  * 
  * @copyright Copyright (c) 2023, Fuechs.
@@ -45,7 +45,7 @@ public:
     using ValueVec = std::vector<Value *>;
     using TypeVec = std::vector<Type *>;
 
-    // Binary Operations
+    // Binary and Unary Operations
     enum Op {
         ADD,    // addition             +
         SUB,    // subtraction          -
@@ -64,6 +64,9 @@ public:
         LTE,    // less than equals     <=   
         GRE,    // greater than         >
         GTE,    // greater than equals  >=   
+
+        NEG,    // negate               -
+        NOT,    // bit not              ~ 
     };
 
     class Struct;
@@ -99,6 +102,8 @@ public:
         Type *getTy() const;
         // get this type with pointer depth + 1
         Ty *getPtrTo() const;
+        // get this type but signed
+        Ty *getSignedTy() const;
         Struct &getStructTy() const;
         size_t getBit() const;
         bool isFloatTy() const;
@@ -649,6 +654,16 @@ public:
      *          false: pointer != nullptr
      */
     Local &compareToNull(Local &pointer, std::string name = "");
+
+    /**
+     * @brief Create an unary operation.
+     * 
+     * @param op The unary operation
+     * @param expr The expression
+     * @param name Name of the result
+     * @return Local & 
+     */
+    Local &unaryOp(Op op, Local &expr, std::string name = "");
 
     /// GETTER ///
 
