@@ -134,6 +134,26 @@ bool Eisdrache::Ty::isValidRHS(const Ty *comp) const {
         && isPtrTy() == comp->isPtrTy();
 }
 
+/// EISDRACHE REFERENCE ///
+
+Eisdrache::Reference::Reference(Eisdrache *eisdrache, std::string symbol) 
+: eisdrache(eisdrache), symbol(symbol) {}
+
+Eisdrache::Reference::~Reference() { symbol.clear(); }
+
+const std::string &Eisdrache::Reference::getSymbol() const { return symbol; }
+
+Eisdrache::Entity &Eisdrache::Reference::getEntity() const {
+    Entity *ret = eisdrache->getFunc(symbol);
+
+    if (!ret)
+        ret = &eisdrache->getCurrentParent()[symbol];
+
+    return *ret;
+}
+
+Eisdrache::Entity::Kind Eisdrache::Reference::kind() { return REFERENCE; }
+
 /// EISDRACHE LOCAL ///
 
 Eisdrache::Local::Local(Eisdrache *eisdrache, Constant *constant) 
@@ -219,6 +239,8 @@ void Eisdrache::Local::invokeFuture() {
     future = nullptr;
     future_args.clear();
 }
+
+Eisdrache::Entity::Kind Eisdrache::Local::kind() { return LOCAL; }
 
 /// EISDRACHE FUNC ///
 
@@ -306,6 +328,8 @@ Eisdrache::Local &Eisdrache::Func::addLocal(Local local) {
 }
 
 Eisdrache::Ty *Eisdrache::Func::getTy() { return type; }
+
+Eisdrache::Entity::Kind Eisdrache::Func::kind() { return FUNC; }
 
 /// EISDRACHE STRUCT ///
 
@@ -1013,7 +1037,7 @@ Eisdrache::Eisdrache(LLVMContext *context, Module *module, IRBuilder<> *builder,
         const Target *target = TargetRegistry::lookupTarget(targetTriple, error);
         if (!target) 
             complain("TargetRegistry::lookupTargt() failed: " + error);
-        targetMachine = target->createTargetMachine(targetTriple, "generic", "", targetOptions, None);
+        targetMachine = target->createTargetMachine(targetTriple, "generic", "", targetOptions, {});
     }
 
     module->setTargetTriple(targetMachine->getTargetTriple().str());

@@ -124,6 +124,47 @@ public:
     };
 
     /**
+     * @brief Parent class for references, locals, functions, ...
+     * 
+     */
+    class Entity {
+    public:
+        using Vec = std::vector<Entity>;
+
+        enum Kind {
+            REFERENCE,
+            LOCAL,
+            FUNC,
+            NONE,
+        };
+
+        virtual Kind kind() = 0;
+    };
+
+    /**
+     * @brief A reference to a symbol (local, function, ...).
+     * 
+     */
+    class Reference : public Entity {
+    public:
+        using Vec = std::vector<Reference>;
+
+        Reference(Eisdrache *eisdrache = nullptr, std::string symbol = "");
+        ~Reference();
+
+        const std::string &getSymbol() const;
+
+        // get entity that is referred to
+        Entity &getEntity() const;
+
+        Kind kind() override;
+
+    private:
+        std::string symbol;
+        Eisdrache *eisdrache;
+    };
+
+    /**
      * @brief Wrapper for llvm::Value | llvm::AllocaInst;
      * 
      * This class contains 
@@ -133,7 +174,7 @@ public:
      * * and the value to be assigned once the value is referenced. 
      * (Relevant for llvm::AllocaInst)
      */
-    class Local {
+    class Local : public Entity {
     public:
         using Vec = std::vector<Local>;
         using Map = std::map<std::string, Local>;
@@ -174,6 +215,8 @@ public:
          *      (`future_args` too)
          */
         void invokeFuture();
+        
+        Kind kind() override;
 
     private:
         union {
@@ -197,7 +240,7 @@ public:
      * Eisdrache::Func &main = eisdrache->declareFunction(eisdrache->getIntTy(), "main",
      *      {{"argc", eisdrache->getSizeTy()}, {"argv", eisdrache->getIntPtrPtrTy(8)}});
      */
-    class Func {
+    class Func : public Entity {
     public:
         using Vec = std::vector<Func>;
         using Map = std::map<std::string, Func>;
@@ -223,6 +266,8 @@ public:
         Local &addLocal(Local local);
 
         Ty *getTy();
+
+        Kind kind() override;
 
     private:
         Function *func;
