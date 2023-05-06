@@ -83,9 +83,10 @@ public:
      */
     class Ty {
     public:
-        using Vec = std::vector<Ty *>;
-        using OldMap = std::map<std::string, Ty *>;
-        using Map = std::vector<std::pair<std::string, Ty *>>;
+        using Ptr = std::shared_ptr<Ty>;
+        using Vec = std::vector<Ptr>;
+        using OldMap = std::map<std::string, Ptr>;
+        using Map = std::vector<std::pair<std::string, Ptr>>;
 
         Ty(Eisdrache *eisdrache, Type *llvmTy);
         Ty(Eisdrache *eisdrache = nullptr, size_t bit = 0, size_t ptrDepth = 0, bool isFloat = false, bool isSigned = false);
@@ -96,20 +97,20 @@ public:
         // NOTE: can not check wether types are completely equal
         bool operator==(const Type *comp) const;
         // return this Ty with pointer depth - 1 ("dereference")
-        Ty *operator*() const;
+        Ptr operator*() const;
 
         // get the equivalent llvm::Type 
         Type *getTy() const;
         // get this type with pointer depth + 1
-        Ty *getPtrTo() const;
+        Ptr getPtrTo() const;
         // get this type but signed
-        Ty *getSignedTy() const;
+        Ptr getSignedTy() const;
         Struct &getStructTy() const;
         size_t getBit() const;
         bool isFloatTy() const;
         bool isSignedTy() const;
         bool isPtrTy() const;
-        bool isValidRHS(const Ty *comp) const;
+        bool isValidRHS(const Ptr comp) const;
 
     private:
         size_t bit;
@@ -152,6 +153,8 @@ public:
         Reference(Eisdrache *eisdrache = nullptr, std::string symbol = "");
         ~Reference();
 
+        Reference &operator=(const Reference &copy);
+
         const std::string &getSymbol() const;
 
         // get entity that is referred to
@@ -180,7 +183,7 @@ public:
         using Map = std::map<std::string, Local>;
 
         Local(Eisdrache *eisdrache, Constant *constant);
-        Local(Eisdrache *eisdrache = nullptr, Ty *type = nullptr, Value *ptr = nullptr, Value *future = nullptr, ValueVec future_args = ValueVec());
+        Local(Eisdrache *eisdrache = nullptr, Ty::Ptr type = nullptr, Value *ptr = nullptr, Value *future = nullptr, ValueVec future_args = ValueVec());
         
         Local &operator=(const Local &copy);
         bool operator==(const Local &comp) const;
@@ -190,11 +193,11 @@ public:
         void setPtr(Value *ptr);
         void setFuture(Value *future);
         void setFutureArgs(ValueVec args);
-        void setTy(Ty *ty);
+        void setTy(Ty::Ptr ty);
 
         AllocaInst *getAllocaPtr();
         Value *getValuePtr();
-        Ty *getTy();
+        Ty::Ptr getTy();
         std::string getName() const;
 
         bool isAlloca();
@@ -223,7 +226,7 @@ public:
             Value *v_ptr;
             AllocaInst *a_ptr;
         };
-        Ty *type;
+        Ty::Ptr type;
         Value *future;
         ValueVec future_args;
         Eisdrache *eisdrache;
@@ -246,7 +249,7 @@ public:
         using Map = std::map<std::string, Func>;
 
         Func();
-        Func(Eisdrache *eisdrache, Ty *type, std::string name, Ty::Map parameters, bool entry = false);
+        Func(Eisdrache *eisdrache, Ty::Ptr type, std::string name, Ty::Map parameters, bool entry = false);
         ~Func();
 
         Func &operator=(const Func &copy);
@@ -265,13 +268,13 @@ public:
         // and return reference to copy of local
         Local &addLocal(Local local);
 
-        Ty *getTy();
+        Ty::Ptr getTy();
 
         Kind kind() override;
 
     private:
         Function *func;
-        Ty *type;
+        Ty::Ptr type;
         Local::Vec parameters;
         Local::Map locals;
 
@@ -300,14 +303,14 @@ public:
         bool operator==(const Struct &comp) const;
         bool operator==(const Type *comp) const;
         // get type of an element at an index
-        Ty *operator[](size_t index);
+        Ty::Ptr operator[](size_t index);
         // get the wrapped llvm::StructType
         StructType *operator*();
         
         // allocate object of this type
         Local &allocate(std::string name = "");
         // get the pointer to this type
-        Ty *getPtrTy();
+        Ty::Ptr getPtrTy();
 
         /**
          * @brief Create a member function of this struct.
@@ -318,7 +321,7 @@ public:
          * @param args Additional parameters
          * @return Func * 
          */
-        Func *createMemberFunc(Ty *type, std::string name, Ty::Map args = Ty::Map());
+        Func *createMemberFunc(Ty::Ptr type, std::string name, Ty::Map args = Ty::Map());
 
     private:
         std::string name;
@@ -344,7 +347,7 @@ public:
             RESIZE,
         };
 
-        Array(Eisdrache *eisdrache = nullptr, Ty *elementTy = nullptr, std::string name = "");
+        Array(Eisdrache *eisdrache = nullptr, Ty::Ptr elementTy = nullptr, std::string name = "");
         ~Array();
 
         Local &allocate(std::string name = "");
@@ -353,8 +356,8 @@ public:
     private:
         std::string name;
         Struct *self;
-        Ty *elementTy;
-        Ty *bufferTy;
+        Ty::Ptr elementTy;
+        Ty::Ptr bufferTy;
         
         Func *get_buffer = nullptr;
         Func *set_buffer = nullptr;
@@ -387,29 +390,29 @@ public:
     /// TYPES //
 
     // Type: void
-    Ty *getVoidTy();
+    Ty::Ptr getVoidTy();
     // Type: i1
-    Ty *getBoolTy();
+    Ty::Ptr getBoolTy();
     // Type: i64 (size_t)
-    Ty *getSizeTy();
+    Ty::Ptr getSizeTy();
     // Type: bit
-    Ty *getSignedTy(size_t bit);
+    Ty::Ptr getSignedTy(size_t bit);
     // Type: bit*
-    Ty *getSignedPtrTy(size_t bit);
+    Ty::Ptr getSignedPtrTy(size_t bit);
     // Type: bit**
-    Ty *getSignedPtrPtrTy(size_t bit);
+    Ty::Ptr getSignedPtrPtrTy(size_t bit);
     // Type: bit
-    Ty *getUnsignedTy(size_t bit);
+    Ty::Ptr getUnsignedTy(size_t bit);
     // Type: bit*
-    Ty *getUnsignedPtrTy(size_t bit);
+    Ty::Ptr getUnsignedPtrTy(size_t bit);
     // Type: bit**
-    Ty *getUnsignedPtrPtrTy(size_t bit);
+    Ty::Ptr getUnsignedPtrPtrTy(size_t bit);
     // Type: 16 = half, 32 = float, 64 = double
-    Ty *getFloatTy(size_t bit);
+    Ty::Ptr getFloatTy(size_t bit);
     // Type: 16 = half*, 32 = float*, 64 = double*
-    Ty *getFloatPtrTy(size_t bit);
+    Ty::Ptr getFloatPtrTy(size_t bit);
     // Type: 16 = half**, 32 = float**, 64 = double**
-    Ty *getFloatPtrPtrTy(size_t bit);
+    Ty::Ptr getFloatPtrPtrTy(size_t bit);
 
     /// VALUES ///
 
@@ -423,7 +426,7 @@ public:
     
     Constant *getLiteral(std::string value, std::string name = "");
     
-    ConstantPointerNull *getNullPtr(Ty *ptrTy);
+    ConstantPointerNull *getNullPtr(Ty::Ptr ptrTy);
 
     /// FUNCTIONS ///
     
@@ -435,7 +438,7 @@ public:
      * @param parameters parameters of the function 
      * @return Func & - Eisdrache::Func (wrapped llvm::Function)
      */
-    Func &declareFunction(Ty *type, std::string name, Ty::Vec parameters);
+    Func &declareFunction(Ty::Ptr type, std::string name, Ty::Vec parameters);
     /**
      * @brief Declare a llvm::Function.
      * 
@@ -445,7 +448,7 @@ public:
      * @param entry (optional) creates entry llvm::BasicBlock in function body if true
      * @return Func & - Eisdrache::Func (wrapped llvm::Function)
      */
-    Func &declareFunction(Ty *type, std::string name, Ty::Map parameters = Ty::Map(), bool entry = false);
+    Func &declareFunction(Ty::Ptr type, std::string name, Ty::Map parameters = Ty::Map(), bool entry = false);
     
     /**
      * @brief Get the Eisdrache::Func wrapper object
@@ -494,7 +497,7 @@ public:
      * @param value_args (optional) Arguments if future value is a function
      * @return Local & - Wrapped alloca instruction
      */
-    Local &declareLocal(Ty *type, std::string name = "", Value *future = nullptr, ValueVec future_args = ValueVec());
+    Local &declareLocal(Ty::Ptr type, std::string name = "", Value *future = nullptr, ValueVec future_args = ValueVec());
 
     /**
      * @brief Load the value of a local variable.
@@ -650,7 +653,7 @@ public:
      * @param name (optional) Name of the returned pointer
      * @return Local & - The returned pointer from the bitcast
      */
-    Local &bitCast(Local &ptr, Ty *to, std::string name = "");
+    Local &bitCast(Local &ptr, Ty::Ptr to, std::string name = "");
 
     /**
      * @brief Jump to block.
@@ -677,7 +680,7 @@ public:
      * @param name (optional) The name of the casted value
      * @return Local & 
      */
-    Local &typeCast(Local &local, Ty *to, std::string name = "");
+    Local &typeCast(Local &local, Ty::Ptr to, std::string name = "");
 
     /**
      * @brief Get the pointer to an element of an array.
@@ -753,9 +756,9 @@ public:
      *      If not, it will add the given type to the context.
      * 
      * @param ty Pointer to the Ty
-     * @return Ty * - Pointer to the found type.
+     * @return Ty::Ptr - Pointer to the found type.
      */
-    Ty *addTy(Ty *ty);
+    Ty::Ptr addTy(Ty::Ptr ty);
 
     /**
      * @brief Get the pointer to a function by its name.
