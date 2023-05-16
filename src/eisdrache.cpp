@@ -485,6 +485,19 @@ Eisdrache::Array::Array(Eisdrache *eisdrache, Ty::Ptr elementTy, std::string nam
     eisdrache->createRet();
     }
 
+    { // constructor_size
+    constructor_size = self->createMemberFunc(eisdrache->getVoidTy(), "constructor_size", 
+        {{"size", eisdrache->getSizeTy()}});
+    Local byteSize = Local(eisdrache, eisdrache->getInt(64, elementTy->getBit() / 8));
+    Local &bytes = eisdrache->binaryOp(MUL, constructor_size->arg(1), byteSize, "bytes");
+    set_buffer->call({constructor_size->arg(0).getValuePtr(), 
+        malloc->call({bytes.getValuePtr()}, "buffer").getValuePtr()});
+    set_size->call({constructor_size->arg(0).getValuePtr(), constructor_size->arg(1).getValuePtr()});
+    set_max->call({constructor_size->arg(0).getValuePtr(), eisdrache->getInt(64, 0)});
+    set_factor->call({constructor_size->arg(0).getValuePtr(), eisdrache->getInt(64, 16)});
+    eisdrache->createRet();
+    }
+
     { // destructor
     destructor = self->createMemberFunc(eisdrache->getVoidTy(), "destructor");
     (**destructor)->setCallingConv(CallingConv::Fast);
@@ -540,17 +553,18 @@ Eisdrache::Local &Eisdrache::Array::allocate(std::string name) {
 
 Eisdrache::Local &Eisdrache::Array::call(Member callee, ValueVec args, std::string name) {
     switch (callee) {
-        case GET_BUFFER:    return get_buffer->call(args, name);
-        case SET_BUFFER:    return set_buffer->call(args, name);
-        case GET_SIZE:      return get_size->call(args, name);
-        case SET_SIZE:      return set_size->call(args, name);
-        case GET_MAX:       return get_max->call(args, name);
-        case SET_MAX:       return set_max->call(args, name);
-        case GET_FACTOR:    return get_factor->call(args, name);
-        case SET_FACTOR:    return set_factor->call(args, name);
-        case CONSTRUCTOR:   return constructor->call(args, name);
-        case DESTRUCTOR:    return destructor->call(args, name);
-        case RESIZE:        return resize->call(args, name);
+        case GET_BUFFER:        return get_buffer->call(args, name);
+        case SET_BUFFER:        return set_buffer->call(args, name);
+        case GET_SIZE:          return get_size->call(args, name);
+        case SET_SIZE:          return set_size->call(args, name);
+        case GET_MAX:           return get_max->call(args, name);
+        case SET_MAX:           return set_max->call(args, name);
+        case GET_FACTOR:        return get_factor->call(args, name);
+        case SET_FACTOR:        return set_factor->call(args, name);
+        case CONSTRUCTOR:       return constructor->call(args, name);
+        case CONSTRUCTOR_SIZE:  return constructor_size->call(args, name);
+        case DESTRUCTOR:        return destructor->call(args, name);
+        case RESIZE:            return resize->call(args, name);
         default:            
             Eisdrache::complain("Eisdrache::Array::call(): Callee not implemented.");
             return eisdrache->getCurrentParent().arg(0); // silence warning

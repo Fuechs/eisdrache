@@ -27,7 +27,7 @@
 #include <llvm/IR/Instructions.h>
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/Target/TargetOptions.h>
-#include "llvm/Support/TargetSelect.h"
+#include <llvm/Support/TargetSelect.h>
 #include <llvm/MC/TargetRegistry.h>
 #include <llvm/ExecutionEngine/ExecutionEngine.h>
 
@@ -343,6 +343,7 @@ public:
             GET_FACTOR,
             SET_FACTOR,
             CONSTRUCTOR,
+            CONSTRUCTOR_SIZE,
             DESTRUCTOR,
             RESIZE,
         };
@@ -368,6 +369,7 @@ public:
         Func *get_factor = nullptr;
         Func *set_factor = nullptr;
         Func *constructor = nullptr;
+        Func *constructor_size = nullptr;
         Func *destructor = nullptr;
         Func *resize = nullptr;
 
