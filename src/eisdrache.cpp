@@ -15,26 +15,25 @@ namespace llvm {
 
 /// EISDRACHE TY ///
 
-Eisdrache::Ty::Ty(Eisdrache *eisdrache, Type *llvmTy) {
-    this->eisdrache = eisdrache;
-    structTy = nullptr;
-    ptrDepth = 0;
-    isSigned = true;
-    isFloat = true;
+Eisdrache::Ty::Ty(Eisdrache *eisdrache) : eisdrache(eisdrache) {}
+
+Eisdrache::Ty::Ptr Eisdrache::Ty::create(Eisdrache *eisdrache, Type *llvmTy) {
+    Ty::Ptr that = nullptr;
     switch (llvmTy->getTypeID()) {
         case Type::IntegerTyID:
-            bit = llvmTy->getIntegerBitWidth();
-            isSigned = false;
-            isFloat = false;
+            that = std::make_shared<IntTy>(eisdrache, llvmTy->getIntegerBitWidth());
             break;
-        case Type::HalfTyID:    bit = 16; break;
-        case Type::FloatTyID:   bit = 32; break;
-        case Type::DoubleTyID:  bit = 64; break;
+        case Type::HalfTyID:    
+            that = std::make_shared<FloatTy>(eisdrache, 16); 
+            break;
+        case Type::FloatTyID:   
+            that = std::make_shared<FloatTy>(eisdrache, 32); 
+            break;
+        case Type::DoubleTyID:  
+            that = std::make_shared<FloatTy>(eisdrache, 64); 
+            break;
         case Type::PointerTyID: 
-            bit = 0; 
-            ptrDepth = 1; 
-            isSigned = false;
-            isFloat = false;
+            that = std::make_shared<PtrTy>(eisdrache, eisdrache->getVoidTy()); 
             break;
         case Type::StructTyID:
             Eisdrache::complain("Eisdrache::Ty::Ty(): Can not construct Eisdrache::Ty from a llvm::Type with ID: Type::StructTyID.");
@@ -45,94 +44,94 @@ Eisdrache::Ty::Ty(Eisdrache *eisdrache, Type *llvmTy) {
         default:
             break;
     }
-}
 
-Eisdrache::Ty::Ty(Eisdrache *eisdrache, size_t bit, size_t ptrDepth, bool isFloat, bool isSigned)
-: eisdrache(eisdrache), bit(bit), ptrDepth(ptrDepth), 
-    isFloat(isFloat), isSigned(isSigned), structTy(nullptr) {}
-
-Eisdrache::Ty::Ty(Eisdrache *eisdrache, Struct *structTy, size_t ptrDepth)
-: eisdrache(eisdrache), bit(0), ptrDepth(ptrDepth), 
-    isFloat(false), isSigned(false), structTy(structTy) {}
-
-Eisdrache::Ty &Eisdrache::Ty::operator=(const Ty &copy) {
-    bit = copy.bit;
-    ptrDepth = copy.ptrDepth;
-    isFloat = copy.isFloat;
-    isSigned = copy.isSigned;
-    structTy = copy.structTy;
-    eisdrache = copy.eisdrache;
-    return *this;
-}
-
-bool Eisdrache::Ty::operator==(const Ty &comp) const {
-    return (bit == comp.bit 
-        && ptrDepth == comp.ptrDepth 
-        && isFloat == comp.isFloat
-        && isSigned == comp.isSigned
-        && structTy == comp.structTy
-        && eisdrache == comp.eisdrache);
-}
-
-bool Eisdrache::Ty::operator==(const Type *comp) const {
-    return (bit == comp->getIntegerBitWidth() 
-        && (bool) ptrDepth == comp->isPointerTy()
-        && isFloat == comp->isFloatingPointTy());
-}
-
-Eisdrache::Ty::Ptr Eisdrache::Ty::operator*() const {
-    return eisdrache->addTy(std::make_shared<Ty>(eisdrache, bit, ptrDepth > 0 ? ptrDepth - 1 : 0, isFloat));
-}
-
-Type *Eisdrache::Ty::getTy() const {
-    if (ptrDepth > 0)
-        return PointerType::get(*eisdrache->getContext(), 0);
-    
-    if (structTy)
-        return **structTy;
-
-    if (isFloat) 
-        switch (bit) {
-            case 16:    return Type::getHalfTy(*eisdrache->getContext());
-            case 32:    return Type::getFloatTy(*eisdrache->getContext());
-            case 64:    return Type::getDoubleTy(*eisdrache->getContext());
-            default:    return complain("Eisdrache::Ty::getTy(): Invalid amount of bits ("+std::to_string(bit)+") for floating point type (expected 16|32|64).");
-        }
-
-    if (bit == 0)
-        return Type::getVoidTy(*eisdrache->getContext());
-    
-    return Type::getIntNTy(*eisdrache->getContext(), bit);
+    return eisdrache->addTy(that);
 }
 
 Eisdrache::Ty::Ptr Eisdrache::Ty::getPtrTo() const { 
-    return eisdrache->addTy(std::make_shared<Ty>(eisdrache, bit, ptrDepth + 1, isFloat, isSigned)); 
+    return eisdrache->addTy(std::make_shared<PtrTy>(eisdrache, this)); 
 }
 
-Eisdrache::Struct &Eisdrache::Ty::getStructTy() const {
-    if (!structTy)
-        Eisdrache::complain("Eisdrache::Ty::getStructTy(): Tried to get struct type, but there is none.");
-    return *structTy;
+size_t Eisdrache::Ty::getBit() const { return 0; }
+
+constexpr bool Eisdrache::Ty::isPtrTy() const { return kind() == PTR; }
+
+constexpr bool Eisdrache::Ty::isIntTy() const { return kind() == FLOAT; }
+
+constexpr bool Eisdrache::Ty::isFloatTy() const { return kind() == INT; }
+
+constexpr bool Eisdrache::Ty::isSignedTy() const { 
+    return kind() == FLOAT || (isa<IntTy>(this) && dyn_cast<IntTy>(this)->getSigned()); 
 }
 
-Eisdrache::Ty::Ptr Eisdrache::Ty::getSignedTy() const {
-    return eisdrache->addTy(std::make_shared<Ty>(eisdrache, bit, ptrDepth, isFloat, true));
+/// ALIAS TY ///
+
+Eisdrache::AliasTy::AliasTy(Eisdrache *eisdrache, std::string alias, Ty::Ptr type) 
+: eisdrache(eisdrache), alias(alias), type(type) {}
+
+Eisdrache::AliasTy::~AliasTy() { alias.clear(); }
+
+size_t Eisdrache::AliasTy::getBit() const { return type->getBit(); }
+
+bool Eisdrache::AliasTy::isValidRHS(Ty::Ptr comp) const { return type->isValidRHS(comp); }
+
+bool Eisdrache::AliasTy::isEqual(Ty::Ptr comp) const { return type->isEqual(comp); }
+
+Eisdrache::AliasTy::Kind Eisdrache::AliasTy::kind() const { return ALIAS; }
+
+/// VOID TY ///
+
+bool Eisdrache::VoidTy::isValidRHS(const Ty::Ptr comp) const { return isa<VoidTy>(comp.get()); }
+
+bool Eisdrache::VoidTy::isEqual(const Ty::Ptr comp) const { return isa<VoidTy>(comp.get()); }
+
+Eisdrache::VoidTy::Kind Eisdrache::VoidTy::kind() const { return VOID; }
+
+/// POINTER TY /// 
+
+Eisdrache::Ty::Ptr &Eisdrache::PtrTy::getPointeeTy() { return pointee; }
+
+bool Eisdrache::PtrTy::isEqual(const Ty::Ptr comp) const {
+    if (!isa<PtrTy>(comp.get())) 
+        return false;
+
+    return pointee->isEqual(dyn_cast<PtrTy>(comp.get())->getPointeeTy());
 }
 
-size_t Eisdrache::Ty::getBit() const { return bit; }
+Eisdrache::PtrTy::Kind Eisdrache::PtrTy::kind() const { return PTR; }
 
-bool Eisdrache::Ty::isFloatTy() const { return isFloat; }
+/// INTEGER TY ///
 
-bool Eisdrache::Ty::isSignedTy() const { return isSigned; }
+size_t Eisdrache::IntTy::getBit() const { return bit; }
 
-bool Eisdrache::Ty::isPtrTy() const { return ptrDepth > 0; }
+const bool &Eisdrache::IntTy::getSigned() const { return _signed; }
 
-bool Eisdrache::Ty::isValidRHS(const Ptr comp) const {
-    return bit == comp->bit
-        && isFloat == comp->isFloat
-        && isSigned == comp->isSigned
-        && isPtrTy() == comp->isPtrTy();
+Eisdrache::Ty::Ptr Eisdrache::IntTy::getSignedTy() const {
+    return eisdrache->addTy(std::make_shared<IntTy>(eisdrache, bit, true));
 }
+
+bool Eisdrache::IntTy::isEqual(const Ty::Ptr comp) const {
+    if (!isa<IntTy>(comp.get()))
+        return false;
+
+    IntTy *conv = dyn_cast<IntTy>(comp.get());
+    return bit == conv->bit && _signed == conv->_signed;
+}
+
+Eisdrache::IntTy::Kind Eisdrache::IntTy::kind() const { return INT; }
+
+/// FLOAT TY ///
+
+size_t Eisdrache::FloatTy::getBit() const { return bit; }
+
+bool Eisdrache::FloatTy::isEqual(const Ty::Ptr comp) const {
+    if (!isa<FloatTy>(comp.get()))
+        return false;
+
+    return bit == dyn_cast<FloatTy>(comp.get())->bit;
+}
+
+Eisdrache::FloatTy::Kind Eisdrache::FloatTy::kind() const { return FLOAT; }
 
 /// EISDRACHE REFERENCE ///
 
@@ -158,13 +157,13 @@ Eisdrache::Entity &Eisdrache::Reference::getEntity() const {
     return *ret;
 }
 
-Eisdrache::Entity::Kind Eisdrache::Reference::kind() { return REFERENCE; }
+Eisdrache::Entity::Kind Eisdrache::Reference::kind() const { return REFERENCE; }
 
 /// EISDRACHE LOCAL ///
 
 Eisdrache::Local::Local(Eisdrache *eisdrache, Constant *constant) 
 : eisdrache(eisdrache), v_ptr(constant), future(nullptr) {
-    type = eisdrache->addTy(std::make_shared<Ty>(eisdrache, constant->getType()));
+    type = eisdrache->addTy(Ty::create(eisdrache, constant->getType()));
 }
 
 Eisdrache::Local::Local(Eisdrache *eisdrache, Ty::Ptr type, Value *ptr, Value *future, ValueVec future_args)
@@ -221,7 +220,7 @@ Eisdrache::Local &Eisdrache::Local::loadValue(bool force, std::string name) {
     if (isAlloca())
         invokeFuture();
 
-    Ty::Ptr loadTy = **type;
+    Ty::Ptr loadTy = dyn_cast<PtrTy>(type.get())->getPointeeTy();
     LoadInst *load = eisdrache->getBuilder()->CreateLoad(loadTy->getTy(), 
         v_ptr, name.empty() ? v_ptr->getName().str()+"_load" : name);
     return eisdrache->getCurrentParent().addLocal(Local(eisdrache, loadTy, load));
@@ -246,7 +245,7 @@ void Eisdrache::Local::invokeFuture() {
     future_args.clear();
 }
 
-Eisdrache::Entity::Kind Eisdrache::Local::kind() { return LOCAL; }
+Eisdrache::Entity::Kind Eisdrache::Local::kind() const { return LOCAL; }
 
 /// EISDRACHE FUNC ///
 
@@ -335,7 +334,7 @@ Eisdrache::Local &Eisdrache::Func::addLocal(Local local) {
 
 Eisdrache::Ty::Ptr Eisdrache::Func::getTy() { return type; }
 
-Eisdrache::Entity::Kind Eisdrache::Func::kind() { return FUNC; }
+Eisdrache::Entity::Kind Eisdrache::Func::kind() const { return FUNC; }
 
 /// EISDRACHE STRUCT ///
 
@@ -394,7 +393,7 @@ Eisdrache::Array::Array(Eisdrache *eisdrache, Ty::Ptr elementTy, std::string nam
     this->name = name;
     this->elementTy = elementTy;
     this->bufferTy = elementTy->getPtrTo();
-    this->self = &eisdrache->declareStruct(name, {
+    this->self = eisdrache->declareStruct(name, {
         bufferTy,                   // TYPE* buffer
         eisdrache->getSizeTy(),     // i64 size
         eisdrache->getSizeTy(),     // i64 max
@@ -610,29 +609,29 @@ void Eisdrache::dump(raw_fd_ostream &os) { module->print(os, nullptr); }
 
 /// TYPES ///
 
-Eisdrache::Ty::Ptr Eisdrache::getVoidTy() { return addTy(std::make_shared<Ty>(this)); }
+Eisdrache::Ty::Ptr Eisdrache::getVoidTy() { return addTy(std::make_shared<VoidTy>(this)); }
 
-Eisdrache::Ty::Ptr Eisdrache::getBoolTy() { return addTy(std::make_shared<Ty>(this, 1)); }
+Eisdrache::Ty::Ptr Eisdrache::getBoolTy() { return addTy(std::make_shared<IntTy>(this, 1)); }
 
-Eisdrache::Ty::Ptr Eisdrache::getSizeTy() { return addTy(std::make_shared<Ty>(this, 64)); }
+Eisdrache::Ty::Ptr Eisdrache::getSizeTy() { return addTy(std::make_shared<IntTy>(this, 64)); }
 
-Eisdrache::Ty::Ptr Eisdrache::getSignedTy(size_t bit) { return addTy(std::make_shared<Ty>(this, bit, 0, false, true)); }
+Eisdrache::Ty::Ptr Eisdrache::getSignedTy(size_t bit) { return addTy(std::make_shared<IntTy>(this, bit, true)); }
 
-Eisdrache::Ty::Ptr Eisdrache::getSignedPtrTy(size_t bit) { return addTy(std::make_shared<Ty>(this, bit, 1, false, true));}
+Eisdrache::Ty::Ptr Eisdrache::getSignedPtrTy(size_t bit) { return addTy(std::make_shared<PtrTy>(this, getSignedTy(bit)));}
 
-Eisdrache::Ty::Ptr Eisdrache::getSignedPtrPtrTy(size_t bit) { return addTy(std::make_shared<Ty>(this, bit, 2, false, true)); }
+Eisdrache::Ty::Ptr Eisdrache::getSignedPtrPtrTy(size_t bit) { return addTy(std::make_shared<PtrTy>(this, getSignedPtrTy(bit))); }
 
-Eisdrache::Ty::Ptr Eisdrache::getUnsignedTy(size_t bit) { return addTy(std::make_shared<Ty>(this, bit, 0, false)); }
+Eisdrache::Ty::Ptr Eisdrache::getUnsignedTy(size_t bit) { return addTy(std::make_shared<IntTy>(this, bit)); }
 
-Eisdrache::Ty::Ptr Eisdrache::getUnsignedPtrTy(size_t bit) { return addTy(std::make_shared<Ty>(this, bit, 1, false)); }
+Eisdrache::Ty::Ptr Eisdrache::getUnsignedPtrTy(size_t bit) { return addTy(std::make_shared<PtrTy>(this, getUnsignedTy(bit))); }
 
-Eisdrache::Ty::Ptr Eisdrache::getUnsignedPtrPtrTy(size_t bit) { return addTy(std::make_shared<Ty>(this, bit, 2, false)); }
+Eisdrache::Ty::Ptr Eisdrache::getUnsignedPtrPtrTy(size_t bit) { return addTy(std::make_shared<PtrTy>(this, getUnsignedPtrTy(bit))); }
 
-Eisdrache::Ty::Ptr Eisdrache::getFloatTy(size_t bit) { return addTy(std::make_shared<Ty>(this, bit, 0, true, true)); }
+Eisdrache::Ty::Ptr Eisdrache::getFloatTy(size_t bit) { return addTy(std::make_shared<FloatTy>(this, bit)); }
 
-Eisdrache::Ty::Ptr Eisdrache::getFloatPtrTy(size_t bit) { return addTy(std::make_shared<Ty>(this, bit, 1, true, true)); }
+Eisdrache::Ty::Ptr Eisdrache::getFloatPtrTy(size_t bit) { return addTy(std::make_shared<PtrTy>(this, getFloatTy(bit))); }
 
-Eisdrache::Ty::Ptr Eisdrache::getFloatPtrPtrTy(size_t bit) { return addTy(std::make_shared<Ty>(this, bit, 2, true, true)); };
+Eisdrache::Ty::Ptr Eisdrache::getFloatPtrPtrTy(size_t bit) { return addTy(std::make_shared<PtrTy>(this, getFloatPtrTy(bit))); };
 
 /// VALUES ///
 
@@ -719,8 +718,8 @@ void Eisdrache::createFuture(Local &local, Func &func, ValueVec args) {
 
 /// STRUCT TYPES ///
 
-Eisdrache::Struct &Eisdrache::declareStruct(std::string name, Ty::Vec elements) {
-    structs[name] = Struct(this, name, elements);
+Eisdrache::Struct::Ptr &Eisdrache::declareStruct(std::string name, Ty::Vec elements) {
+    structs[name] = make_shared<Struct>(this, name, elements);
     return structs.at(name);
 }
 
@@ -730,13 +729,13 @@ Eisdrache::Local &Eisdrache::allocateStruct(Struct &wrap, std::string name) {
 }
 
 Eisdrache::Local &Eisdrache::allocateStruct(std::string typeName, std::string name) {
-    Struct &ref = structs.at(typeName);
-    AllocaInst *alloca = builder->CreateAlloca(*ref, nullptr, name);
-    return parent->addLocal(Local(this, ref.getPtrTy(), alloca));
+    Struct::Ptr &ref = structs.at(typeName);
+    AllocaInst *alloca = builder->CreateAlloca(**ref, nullptr, name);
+    return parent->addLocal(Local(this, ref->getPtrTy(), alloca));
 }
 
 Eisdrache::Local &Eisdrache::getElementPtr(Local &parent, size_t index, std::string name) {
-    Struct &ref = parent.getTy()->getStructTy();
+    Struct &ref = *dyn_cast<Struct>(parent.getTy().get());
     Value *gep = builder->CreateGEP(*ref, parent.getValuePtr(), 
         {getInt(32, 0), getInt(32, index)}, name);
     return this->parent->addLocal(Local(this, ref[index]->getPtrTo(), gep));
@@ -911,7 +910,7 @@ BranchInst *Eisdrache::jump(Local &condition, BasicBlock *then, BasicBlock *else
 }
 
 Eisdrache::Local &Eisdrache::typeCast(Local &value, Ty::Ptr to, std::string name) {
-    if (*value.getTy() == *to) 
+    if (value.getTy()->isEqual(to))
         return value.loadValue();
 
     Local &load = value.loadValue();
@@ -994,7 +993,7 @@ Eisdrache::Local &Eisdrache::unaryOp(Op op, Local &expr, std::string name) {
                 ret.setPtr(builder->CreateFNeg(load.getValuePtr(), "negtmp"));
             else
                 ret.setPtr(builder->CreateNeg(load.getValuePtr(), "negtmp"));
-            ret.setTy(loadTy->getSignedTy());
+            ret.setTy(isa<IntTy>(loadTy.get()) ? dyn_cast<IntTy>(loadTy.get())->getSignedTy() : loadTy);
             break;
         }
         case NOT: 
@@ -1022,7 +1021,7 @@ Eisdrache::Ty::Vec &Eisdrache::getTypes() { return types; }
 
 Eisdrache::Ty::Ptr Eisdrache::addTy(Ty::Ptr ty) {
     for (Ty::Ptr &cty : types)
-        if (*cty == *ty)
+        if (cty->isEqual(ty))
             return cty;
     types.push_back(ty);
     return types.back();

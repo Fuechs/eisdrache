@@ -69,61 +69,6 @@ public:
         NOT,    // bit not              ~ 
     };
 
-    class Struct;
-
-    /**
-     * @brief Custom Type Class;
-     * 
-     * This class contains
-     * * the amount of bits (0 = void), 
-     * * wether the type is a floating point type,
-     * * wether the type is signed,
-     * * a possible struct type,
-     * * and the pointer depth.
-     */
-    class Ty {
-    public:
-        using Ptr = std::shared_ptr<Ty>;
-        using Vec = std::vector<Ptr>;
-        using OldMap = std::map<std::string, Ptr>;
-        using Map = std::vector<std::pair<std::string, Ptr>>;
-
-        Ty(Eisdrache *eisdrache, Type *llvmTy);
-        Ty(Eisdrache *eisdrache = nullptr, size_t bit = 0, size_t ptrDepth = 0, bool isFloat = false, bool isSigned = false);
-        Ty(Eisdrache *eisdrache, Struct *structTy, size_t ptrDepth = 0);
-
-        Ty &operator=(const Ty &copy);
-        bool operator==(const Ty &comp) const;
-        // NOTE: can not check wether types are completely equal
-        bool operator==(const Type *comp) const;
-        // return this Ty with pointer depth - 1 ("dereference")
-        Ptr operator*() const;
-
-        // get the equivalent llvm::Type 
-        Type *getTy() const;
-        // get this type with pointer depth + 1
-        Ptr getPtrTo() const;
-        // get this type but signed
-        Ptr getSignedTy() const;
-        Struct &getStructTy() const;
-        size_t getBit() const;
-        bool isFloatTy() const;
-        bool isSignedTy() const;
-        bool isPtrTy() const;
-        bool isValidRHS(const Ptr comp) const;
-
-    private:
-        size_t bit;
-        size_t ptrDepth;
-
-        bool isFloat;
-        bool isSigned;
-
-        Struct *structTy;
-
-        Eisdrache *eisdrache;
-    };
-
     /**
      * @brief Parent class for references, locals, functions, ...
      * 
@@ -136,10 +81,156 @@ public:
             REFERENCE,
             LOCAL,
             FUNC,
+            ALIAS,
+            VOID,
+            PTR,
+            INT,
+            FLOAT,
+            STRUCT,
             NONE,
         };
 
-        virtual Kind kind() = 0;
+        virtual Kind kind() const = 0;
+    };
+
+    /**
+     * @brief Custom Type Parent Class;
+     */
+    class Ty : public Entity {
+    public:
+        using Ptr = std::shared_ptr<Ty>;
+        using Vec = std::vector<Ptr>;
+        using OldMap = std::map<std::string, Ptr>;
+        using Map = std::vector<std::pair<std::string, Ptr>>;
+
+        Ty(Eisdrache *eisdrache = nullptr);
+
+        static Ptr create(Eisdrache *eisdrache, Type *llvmTy);
+
+        Ptr getPtrTo() const;
+        virtual size_t getBit() const;
+
+        // get the equivalent llvm::Type 
+        virtual Type *getTy() const = 0;
+
+        virtual bool isValidRHS(const Ptr comp) const = 0;
+        virtual bool isEqual(const Ptr comp) const = 0;
+
+        constexpr bool isPtrTy() const;
+        constexpr bool isIntTy() const;
+        constexpr bool isFloatTy() const;
+        constexpr bool isSignedTy() const;
+
+        virtual Kind kind() const = 0;
+
+    protected:
+
+        Eisdrache *eisdrache;
+    };
+
+    /**
+     * @brief An alias for a type.
+     * 
+     */
+    class AliasTy : public Ty {
+    public:
+        using Ptr = std::shared_ptr<AliasTy>;
+        using Vec = std::vector<AliasTy>;
+
+        AliasTy(Eisdrache *eisdrache, std::string alias, Ty::Ptr type);
+        ~AliasTy();
+
+        size_t getBit() const override;
+
+        bool isValidRHS(const Ty::Ptr comp) const override;
+        bool isEqual(const Ty::Ptr comp) const override;
+
+        Kind kind() const override;
+
+    private:
+        std::string alias;
+        Ty::Ptr type;
+        Eisdrache *eisdrache;
+    };
+
+    /**
+     * @brief Type representing void.
+     * 
+     */
+    class VoidTy : public Ty {
+    public:
+        using Ptr = std::shared_ptr<VoidTy>;
+        using Vec = std::vector<Ptr>;
+
+        bool isValidRHS(const Ty::Ptr comp) const override;
+        bool isEqual(const Ty::Ptr comp) const override;
+
+        Kind kind() const override;
+    };
+
+    /**
+     * @brief Type representing a pointer to an adress.
+     * 
+     */
+    class PtrTy : public Ty {
+    public:
+        using Ptr = std::shared_ptr<PtrTy>;
+        using Vec = std::vector<Ptr>;
+
+        PtrTy(Eisdrache *eisdrache, Ty::Ptr pointee);
+
+        Ty::Ptr &getPointeeTy();
+        
+        size_t getBit() const override;
+
+        bool isValidRHS(const Ty::Ptr comp) const override;
+        bool isEqual(const Ty::Ptr comp) const override;
+
+        Kind kind() const override;
+
+    private:
+        Ty::Ptr pointee;
+        Eisdrache *eisdrache;
+    };
+
+    class IntTy : public Ty {
+    public:
+        using Ptr = std::shared_ptr<IntTy>;
+        using Vec = std::vector<Ptr>;
+
+        IntTy(Eisdrache *eisdrache, size_t bit, bool _signed = false);
+        
+        size_t getBit() const override;
+
+        const bool &getSigned() const;
+        Ty::Ptr getSignedTy() const;
+
+        bool isValidRHS(const Ty::Ptr comp) const override;
+        bool isEqual(const Ty::Ptr comp) const override;
+
+        Kind kind() const override;
+
+    private:
+        size_t bit;
+        bool _signed;
+    };
+
+    class FloatTy : public Ty {
+    public:
+        using Ptr = std::shared_ptr<FloatTy>;
+        using Vec = std::vector<Ptr>;
+
+        FloatTy(Eisdrache *eisdrache, size_t bit);
+
+        size_t getBit() const override;
+
+        bool isValidRHS(const Ty::Ptr comp) const override;
+        bool isEqual(const Ty::Ptr comp) const override;
+
+        Kind kind() const override;
+    
+    private:
+        size_t bit;
     };
 
     /**
@@ -160,7 +251,7 @@ public:
         // get entity that is referred to
         Entity &getEntity() const;
 
-        Kind kind() override;
+        Kind kind() const override;
 
     private:
         std::string symbol;
@@ -172,7 +263,6 @@ public:
      * 
      * This class contains 
      * * the value itself,
-     * * wether the (integer) value is signed,
      * * wether the value is a llvm::AllocaInst,
      * * and the value to be assigned once the value is referenced. 
      * (Relevant for llvm::AllocaInst)
@@ -219,7 +309,7 @@ public:
          */
         void invokeFuture();
         
-        Kind kind() override;
+        Kind kind() const override;
 
     private:
         union {
@@ -270,7 +360,7 @@ public:
 
         Ty::Ptr getTy();
 
-        Kind kind() override;
+        Kind kind() const override;
 
     private:
         Function *func;
@@ -287,13 +377,16 @@ public:
      * This class contains the struct type itself and all types of its elements. 
      * Can be initialized by the user, but should be initialized by the Eisdrache Wrapper.
      * 
+     * TODO: initialize from llvm::Type
+     * 
      * @example
      * Eisdrache::Struct &array = eisdrache->declareStruct("array", {eisdrache->getIntPtrTy(), eisdrache->getSizeTy()});
      */
-    class Struct {
+    class Struct : public Ty {
     public:
-        using Vec = std::vector<Struct>;
-        using Map = std::map<std::string, Struct>;
+        using Ptr = std::shared_ptr<Struct>;
+        using Vec = std::vector<Ptr>;
+        using Map = std::map<std::string, Ptr>;
 
         Struct();
         Struct(Eisdrache *eisdrache, std::string name, Ty::Vec elements);
@@ -356,7 +449,7 @@ public:
 
     private:
         std::string name;
-        Struct *self;
+        Struct::Ptr self;
         Ty::Ptr elementTy;
         Ty::Ptr bufferTy;
         
@@ -553,7 +646,7 @@ public:
      * @param elements Types of the elements of the struct type
      * @return Struct & - Wrapped llvm::StructType
      */
-    Struct &declareStruct(std::string name, Ty::Vec elements);
+    Struct::Ptr &declareStruct(std::string name, Ty::Vec elements);
 
     /**
      * @brief Allocate object of struct type.
