@@ -40,8 +40,9 @@ namespace llvm {
  * This wrapper offers a simplified version of the llvm::IRBuilder to avoid
  * unnecessary code.
  */
-class Eisdrache {
+class Eisdrache : public std::enable_shared_from_this<Eisdrache> {
 public:
+    using Ptr = std::shared_ptr<Eisdrache>;
     using ValueVec = std::vector<Value *>;
     using TypeVec = std::vector<Type *>;
 
@@ -77,6 +78,9 @@ public:
     public:
         using Vec = std::vector<Entity>;
 
+        Entity(Eisdrache::Ptr eisdrache = nullptr);
+        virtual ~Entity();
+
         enum Kind {
             REFERENCE,
             LOCAL,
@@ -91,23 +95,26 @@ public:
         };
 
         virtual Kind kind() const = 0;
+
+    protected:
+        Eisdrache::Ptr eisdrache;
     };
 
     /**
      * @brief Custom Type Parent Class;
      */
-    class Ty : public Entity {
+    class Ty : public Entity, public std::enable_shared_from_this<Ty> {
     public:
         using Ptr = std::shared_ptr<Ty>;
         using Vec = std::vector<Ptr>;
         using OldMap = std::map<std::string, Ptr>;
         using Map = std::vector<std::pair<std::string, Ptr>>;
 
-        Ty(Eisdrache *eisdrache = nullptr);
+        Ty(Eisdrache::Ptr eisdrache = nullptr);
 
-        static Ptr create(Eisdrache *eisdrache, Type *llvmTy);
+        static Ptr create(Eisdrache::Ptr eisdrache, Type *llvmTy);
 
-        Ptr getPtrTo() const;
+        Ptr getPtrTo();
         virtual size_t getBit() const;
 
         // get the equivalent llvm::Type 
@@ -119,13 +126,9 @@ public:
         constexpr bool isPtrTy() const;
         constexpr bool isIntTy() const;
         constexpr bool isFloatTy() const;
-        constexpr bool isSignedTy() const;
+        constexpr bool isSignedTy();
 
         virtual Kind kind() const = 0;
-
-    protected:
-
-        Eisdrache *eisdrache;
     };
 
     /**
@@ -137,10 +140,12 @@ public:
         using Ptr = std::shared_ptr<AliasTy>;
         using Vec = std::vector<AliasTy>;
 
-        AliasTy(Eisdrache *eisdrache, std::string alias, Ty::Ptr type);
-        ~AliasTy();
+        AliasTy(Eisdrache::Ptr eisdrache, std::string alias, Ty::Ptr type);
+        ~AliasTy() override;
 
         size_t getBit() const override;
+
+        Type *getTy() const override;
 
         bool isValidRHS(const Ty::Ptr comp) const override;
         bool isEqual(const Ty::Ptr comp) const override;
@@ -150,7 +155,6 @@ public:
     private:
         std::string alias;
         Ty::Ptr type;
-        Eisdrache *eisdrache;
     };
 
     /**
@@ -161,6 +165,10 @@ public:
     public:
         using Ptr = std::shared_ptr<VoidTy>;
         using Vec = std::vector<Ptr>;
+
+        VoidTy(Eisdrache::Ptr eisdrache = nullptr);
+
+        Type *getTy() const override;
 
         bool isValidRHS(const Ty::Ptr comp) const override;
         bool isEqual(const Ty::Ptr comp) const override;
@@ -177,11 +185,13 @@ public:
         using Ptr = std::shared_ptr<PtrTy>;
         using Vec = std::vector<Ptr>;
 
-        PtrTy(Eisdrache *eisdrache, Ty::Ptr pointee);
+        PtrTy(Eisdrache::Ptr eisdrache, Ty::Ptr pointee);
 
         Ty::Ptr &getPointeeTy();
         
         size_t getBit() const override;
+
+        Type *getTy() const override;
 
         bool isValidRHS(const Ty::Ptr comp) const override;
         bool isEqual(const Ty::Ptr comp) const override;
@@ -190,7 +200,6 @@ public:
 
     private:
         Ty::Ptr pointee;
-        Eisdrache *eisdrache;
     };
 
     class IntTy : public Ty {
@@ -198,12 +207,14 @@ public:
         using Ptr = std::shared_ptr<IntTy>;
         using Vec = std::vector<Ptr>;
 
-        IntTy(Eisdrache *eisdrache, size_t bit, bool _signed = false);
+        IntTy(Eisdrache::Ptr eisdrache, size_t bit, bool _signed = false);
         
         size_t getBit() const override;
 
         const bool &getSigned() const;
         Ty::Ptr getSignedTy() const;
+
+        Type *getTy() const override;
 
         bool isValidRHS(const Ty::Ptr comp) const override;
         bool isEqual(const Ty::Ptr comp) const override;
@@ -220,9 +231,11 @@ public:
         using Ptr = std::shared_ptr<FloatTy>;
         using Vec = std::vector<Ptr>;
 
-        FloatTy(Eisdrache *eisdrache, size_t bit);
+        FloatTy(Eisdrache::Ptr eisdrache, size_t bit);
 
         size_t getBit() const override;
+
+        Type *getTy() const override;
 
         bool isValidRHS(const Ty::Ptr comp) const override;
         bool isEqual(const Ty::Ptr comp) const override;
@@ -241,8 +254,8 @@ public:
     public:
         using Vec = std::vector<Reference>;
 
-        Reference(Eisdrache *eisdrache = nullptr, std::string symbol = "");
-        ~Reference();
+        Reference(Eisdrache::Ptr eisdrache = nullptr, std::string symbol = "");
+        ~Reference() override;
 
         Reference &operator=(const Reference &copy);
 
@@ -255,7 +268,7 @@ public:
 
     private:
         std::string symbol;
-        Eisdrache *eisdrache;
+        Eisdrache::Ptr eisdrache;
     };
 
     /**
@@ -272,8 +285,8 @@ public:
         using Vec = std::vector<Local>;
         using Map = std::map<std::string, Local>;
 
-        Local(Eisdrache *eisdrache, Constant *constant);
-        Local(Eisdrache *eisdrache = nullptr, Ty::Ptr type = nullptr, Value *ptr = nullptr, Value *future = nullptr, ValueVec future_args = ValueVec());
+        Local(Eisdrache::Ptr eisdrache, Constant *constant);
+        Local(Eisdrache::Ptr eisdrache = nullptr, Ty::Ptr type = nullptr, Value *ptr = nullptr, Value *future = nullptr, ValueVec future_args = ValueVec());
         
         Local &operator=(const Local &copy);
         bool operator==(const Local &comp) const;
@@ -319,7 +332,7 @@ public:
         Ty::Ptr type;
         Value *future;
         ValueVec future_args;
-        Eisdrache *eisdrache;
+        Eisdrache::Ptr eisdrache;
     };
 
     /**
@@ -339,7 +352,7 @@ public:
         using Map = std::map<std::string, Func>;
 
         Func();
-        Func(Eisdrache *eisdrache, Ty::Ptr type, std::string name, Ty::Map parameters, bool entry = false);
+        Func(Eisdrache::Ptr eisdrache, Ty::Ptr type, std::string name, Ty::Map parameters, bool entry = false);
         ~Func();
 
         Func &operator=(const Func &copy);
@@ -368,7 +381,7 @@ public:
         Local::Vec parameters;
         Local::Map locals;
 
-        Eisdrache *eisdrache;
+        Eisdrache::Ptr eisdrache;
     };
 
     /**
@@ -389,7 +402,7 @@ public:
         using Map = std::map<std::string, Ptr>;
 
         Struct();
-        Struct(Eisdrache *eisdrache, std::string name, Ty::Vec elements);
+        Struct(Eisdrache::Ptr eisdrache, std::string name, Ty::Vec elements);
         ~Struct();
 
         Struct &operator=(const Struct &copy);
@@ -402,8 +415,6 @@ public:
         
         // allocate object of this type
         Local &allocate(std::string name = "");
-        // get the pointer to this type
-        Ty::Ptr getPtrTy();
 
         /**
          * @brief Create a member function of this struct.
@@ -416,12 +427,19 @@ public:
          */
         Func *createMemberFunc(Ty::Ptr type, std::string name, Ty::Map args = Ty::Map());
 
+        Type *getTy() const override;
+
+        bool isValidRHS(const Ty::Ptr comp) const override;
+        bool isEqual(const Ty::Ptr comp) const override;
+
+        Kind kind() const override;
+
     private:
         std::string name;
         StructType *type;
         Ty::Vec elements;
 
-        Eisdrache *eisdrache;
+        Eisdrache::Ptr eisdrache;
     };
 
     class Array {
@@ -441,7 +459,7 @@ public:
             RESIZE,
         };
 
-        Array(Eisdrache *eisdrache = nullptr, Ty::Ptr elementTy = nullptr, std::string name = "");
+        Array(Eisdrache::Ptr eisdrache = nullptr, Ty::Ptr elementTy = nullptr, std::string name = "");
         ~Array();
 
         Local &allocate(std::string name = "");
@@ -466,7 +484,7 @@ public:
         Func *destructor = nullptr;
         Func *resize = nullptr;
 
-        Eisdrache *eisdrache;
+        Eisdrache::Ptr eisdrache;
     };
 
     ~Eisdrache();
@@ -474,10 +492,10 @@ public:
     // Initialize the LLVM API
     static void initialize();
 
-    static Eisdrache *create(std::string moduleID, std::string targetTriple = "");
-    static Eisdrache *create(LLVMContext *context, std::string moduleID, std::string targetTriple = "");
-    static Eisdrache *create(Module *module, std::string targetTriple = "");
-    static Eisdrache *create(Module *module, IRBuilder<> *builder, std::string targetTriple = "");
+    static Eisdrache::Ptr create(std::string moduleID, std::string targetTriple = "");
+    static Eisdrache::Ptr create(LLVMContext *context, std::string moduleID, std::string targetTriple = "");
+    static Eisdrache::Ptr create(Module *module, std::string targetTriple = "");
+    static Eisdrache::Ptr create(Module *module, IRBuilder<> *builder, std::string targetTriple = "");
 
     // dump the generated LLVM IR
     void dump(raw_fd_ostream &os = errs());
@@ -656,7 +674,7 @@ public:
      * @param name Name of the returned pointer
      * @return Local & - Wrapped alloca instruction
      */
-    Local &allocateStruct(Struct &wrap, std::string name = "");
+    Local &allocateStruct(Struct::Ptr wrap, std::string name = "");
     /**
      * @brief Allocate object of struct type.
      *      Automatically appends to Eisdrache::Func::locals.
