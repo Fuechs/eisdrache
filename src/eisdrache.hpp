@@ -438,8 +438,6 @@ public:
         std::string name;
         StructType *type;
         Ty::Vec elements;
-
-        Eisdrache::Ptr eisdrache;
     };
 
     class Array {
@@ -492,10 +490,7 @@ public:
     // Initialize the LLVM API
     static void initialize();
 
-    static Eisdrache::Ptr create(std::string moduleID, std::string targetTriple = "");
-    static Eisdrache::Ptr create(LLVMContext *context, std::string moduleID, std::string targetTriple = "");
-    static Eisdrache::Ptr create(Module *module, std::string targetTriple = "");
-    static Eisdrache::Ptr create(Module *module, IRBuilder<> *builder, std::string targetTriple = "");
+    static Ptr create(std::string moduleID, std::string targetTriple = "");
 
     // dump the generated LLVM IR
     void dump(raw_fd_ostream &os = errs());
@@ -889,7 +884,7 @@ public:
     void setParent(Func *func);
 
 private:
-    Eisdrache(LLVMContext *, Module *, IRBuilder<> *, std::string);
+    Eisdrache(LLVMContext *context, Module *module, IRBuilder<> *builder, std::string targetTriple);
 
     static std::nullptr_t complain(std::string);
 

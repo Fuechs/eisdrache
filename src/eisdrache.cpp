@@ -655,20 +655,10 @@ void Eisdrache::initialize() {
 
 Eisdrache::Ptr Eisdrache::create(std::string moduleID, std::string targetTriple) {
     LLVMContext *context = new LLVMContext();
-    return std::make_shared<Eisdrache>(context, new Module(moduleID, *context), new IRBuilder<>(*context), targetTriple);
+    // has to be this way because std::shared_ptr / make_shared cannot access the private constructor, 
+    // neither should the user be able to
+    return Ptr(new Eisdrache(context, new Module(moduleID, *context), new IRBuilder<>(*context), targetTriple));
 }
-
-Eisdrache::Ptr Eisdrache::create(LLVMContext *context, std::string moduleID, std::string targetTriple) {
-    return std::make_shared<Eisdrache>(context, new Module(moduleID, *context), new IRBuilder<>(*context), targetTriple);
-}
-
-Eisdrache::Ptr Eisdrache::create(Module *module, std::string targetTriple) {
-    return std::make_shared<Eisdrache>(&module->getContext(), module, new IRBuilder<>(module->getContext()), targetTriple);
-}
-
-Eisdrache::Ptr Eisdrache::create(Module *module, IRBuilder<> *builder, std::string targetTriple) {
-    return std::make_shared<Eisdrache>(&module->getContext(), module, builder, targetTriple);
-};
 
 void Eisdrache::dump(raw_fd_ostream &os) { module->print(os, nullptr); }
 
@@ -800,7 +790,15 @@ Eisdrache::Local &Eisdrache::allocateStruct(std::string typeName, std::string na
 }
 
 Eisdrache::Local &Eisdrache::getElementPtr(Local &parent, size_t index, std::string name) {
-    Struct &ref = *dynamic_cast<Struct *>(parent.getTy().get());
+    if (parent.getTy()->kind() != Entity::PTR)
+        complain("Eisdrache::getElementPtr(): Type of parent is not a pointer.");
+
+    PtrTy *ptr = dynamic_cast<PtrTy *>(parent.getTy().get());
+    
+    if (ptr->getPointeeTy()->kind() != Entity::STRUCT)
+        complain("Eisdrache::getElementPtr(): Type of parent is not a pointer to a struct.");
+    
+    Struct &ref = *dynamic_cast<Struct *>(ptr->getPointeeTy().get());
     Value *gep = builder->CreateGEP(*ref, parent.getValuePtr(), 
         {getInt(32, 0), getInt(32, index)}, name);
     return this->parent->addLocal(Local(shared_from_this(), ref[index]->getPtrTo(), gep));
