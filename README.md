@@ -55,7 +55,7 @@ using namespace llvm;
 
 int main(void) {
     Eisdrache::initialize();
-    Eisdrache *eisdrache = Eisdrache::create("test compiler");    
+    Eisdrache::Ptr eisdrache = Eisdrache::create("test compiler");    
         
     // i64 @main(i64 %argc, i8** %argv)
     Eisdrache::Func &main = eisdrache->declareFunction(eisdrache->getSignedTy(64), "main", 
@@ -84,7 +84,7 @@ using Array = Eisdrache::Array;
 
 int main(void) {
     Eisdrache::initialize();
-    Eisdrache *eisdrache = Eisdrache::create("test compiler");
+    Eisdrache::Ptr eisdrache = Eisdrache::create("test compiler");
 
     // %vector = type { ptr, i64, i64, i64 }
     // ...functions...
