@@ -390,8 +390,6 @@ public:
      * This class contains the struct type itself and all types of its elements. 
      * Can be initialized by the user, but should be initialized by the Eisdrache Wrapper.
      * 
-     * TODO: initialize from llvm::Type
-     * 
      * @example
      * Eisdrache::Struct &array = eisdrache->declareStruct("array", {eisdrache->getIntPtrTy(), eisdrache->getSizeTy()});
      */

@@ -113,7 +113,7 @@ size_t Eisdrache::PtrTy::getBit() const { return pointee->getBit(); }
 Type *Eisdrache::PtrTy::getTy() const { return PointerType::get(*eisdrache->getContext(), 0); }
 
 bool Eisdrache::PtrTy::isValidRHS(const Ty::Ptr comp) const {
-    // TODO:
+    // there are no valid binary operations for pointers
     return false;
 }
 
@@ -142,10 +142,7 @@ Eisdrache::Ty::Ptr Eisdrache::IntTy::getSignedTy() const {
 
 Type *Eisdrache::IntTy::getTy() const { return Type::getIntNTy(*eisdrache->getContext(), bit); }
 
-bool Eisdrache::IntTy::isValidRHS(const Ty::Ptr comp) const {
-    // TODO: 
-    return false;
-}
+bool Eisdrache::IntTy::isValidRHS(const Ty::Ptr comp) const { return isEqual(comp); }
 
 bool Eisdrache::IntTy::isEqual(const Ty::Ptr comp) const {
     if (comp->kind() != INT)
@@ -176,10 +173,7 @@ Type *Eisdrache::FloatTy::getTy() const {
     }
 }
 
-bool Eisdrache::FloatTy::isValidRHS(const Ty::Ptr comp) const {
-    // TODO:
-    return false;
-}
+bool Eisdrache::FloatTy::isValidRHS(const Ty::Ptr comp) const { return isEqual(comp); }
 
 bool Eisdrache::FloatTy::isEqual(const Ty::Ptr comp) const {
     return comp->kind() == FLOAT 
@@ -849,7 +843,7 @@ Eisdrache::Local &Eisdrache::binaryOp(Op op, Local &LHS, Local &RHS, std::string
     Ty::Ptr ty = l.getTy();
     Local bop = Local(shared_from_this(), ty); 
     if (!ty->isValidRHS(r.getTy()))
-        Eisdrache::complain("Eisdrache::binaryOp(): LHS and RHS types differ.");
+        Eisdrache::complain("Eisdrache::binaryOp(): LHS and RHS types differ too much.");
 
     switch (op) {
         case ADD:
