@@ -2,7 +2,7 @@
  * @file eisdrache.hpp
  * @author fuechs
  * @brief Eisdrache class header
- * @version 0.2
+ * @version 0.3
  * @date 2023-01-30
  * 
  * @copyright Copyright (c) 2023, Fuechs.
@@ -786,7 +786,7 @@ public:
      * @param name (optional) The name of the casted value
      * @return Local & 
      */
-    Local &typeCast(Local &local, Ty::Ptr to, std::string name = "");
+    Local &typeCast(Local &local, Ty::Ptr to, std::string name = "typecast");
 
     /**
      * @brief Get the pointer to an element of an array.
