@@ -2,8 +2,8 @@
  * @file eisdrache.cpp
  * @author fuechs
  * @brief Eisdrache class implementation
- * @version 0.3
- * @date 2023-01-30
+ * @version 0.3.1
+ * @date 2023-10-01
  * 
  * @copyright Copyright (c) 2023, Fuechs.
  * 
