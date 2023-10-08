@@ -11,6 +11,7 @@
 
 #include "eisdrache.hpp"
 
+
 namespace llvm {
 
 /// ENTITY ///
@@ -370,6 +371,13 @@ Eisdrache::Local &Eisdrache::Func::call(ValueVec args, std::string name) {
     Value *ret = eisdrache->getBuilder()->CreateCall(func, args, name); 
     return eisdrache->getCurrentParent().addLocal(Local(eisdrache, type, ret));
 }
+
+Eisdrache::Local &Eisdrache::Func::call(Local::Vec args, std::string name) { 
+    ValueVec raw_args = {};
+    for (Local &local : args)
+        raw_args.push_back(local.getValuePtr());
+    return this->call(raw_args, name);
+}
  
 Eisdrache::Local &Eisdrache::Func::addLocal(Local local) { 
     std::string symbol = "";
@@ -548,9 +556,8 @@ Eisdrache::Array::Array(Eisdrache::Ptr eisdrache, Ty::Ptr elementTy, std::string
         {{"size", eisdrache->getSizeTy()}});
     Local byteSize = Local(eisdrache, eisdrache->getInt(64, elementTy->getBit() / 8));
     Local &bytes = eisdrache->binaryOp(MUL, constructor_size->arg(1), byteSize, "bytes");
-    set_buffer->call({constructor_size->arg(0).getValuePtr(), 
-        malloc->call({bytes.getValuePtr()}, "buffer").getValuePtr()});
-    set_size->call({constructor_size->arg(0).getValuePtr(), constructor_size->arg(1).getValuePtr()});
+    set_buffer->call({constructor_size->arg(0), malloc->call({bytes}, "buffer")});
+    set_size->call({constructor_size->arg(0), constructor_size->arg(1)});
     set_max->call({constructor_size->arg(0).getValuePtr(), eisdrache->getInt(64, 0)});
     set_factor->call({constructor_size->arg(0).getValuePtr(), eisdrache->getInt(64, 16)});
     eisdrache->createRet();
@@ -562,11 +569,11 @@ Eisdrache::Array::Array(Eisdrache::Ptr eisdrache, Ty::Ptr elementTy, std::string
     (**destructor)->setDoesNotThrow();
     BasicBlock *free_begin = eisdrache->createBlock("free_begin");
     BasicBlock *free_close = eisdrache->createBlock("free_close");
-    Local &buffer = get_buffer->call({destructor->arg(0).getValuePtr()}, "buffer");
+    Local &buffer = get_buffer->call({destructor->arg(0)}, "buffer");
     eisdrache->jump(eisdrache->compareToNull(buffer, "cond"), free_close, free_begin);
     eisdrache->setBlock(free_begin);
     Local &buffer_cast = eisdrache->bitCast(buffer, eisdrache->getUnsignedPtrTy(8), "buffer_cast");
-    free->call({buffer.getValuePtr()});
+    free->call({buffer});
     eisdrache->jump(free_close);
     eisdrache->setBlock(free_close);
     eisdrache->createRet();
@@ -581,14 +588,14 @@ Eisdrache::Array::Array(Eisdrache::Ptr eisdrache, Ty::Ptr elementTy, std::string
     
     Local byteSize = Local(eisdrache, eisdrache->getInt(64, elementTy->getBit() / 8));
     Local &bytes = eisdrache->binaryOp(MUL, resize->arg(1), byteSize, "bytes");
-    Local &new_buffer = malloc->call({bytes.getValuePtr()}, "new_buffer");
-    Local &buffer = get_buffer->call({resize->arg(0).getValuePtr()}, "buffer");
-    Local &size = get_size->call({resize->arg(0).getValuePtr()}, "size");
+    Local &new_buffer = malloc->call({bytes}, "new_buffer");
+    Local &buffer = get_buffer->call({resize->arg(0)}, "buffer");
+    Local &size = get_size->call({resize->arg(0)}, "size");
     eisdrache->jump(eisdrache->compareToNull(buffer, "cond"), empty, copy);
     
     eisdrache->setBlock(copy);
-    memcpy->call({new_buffer.getValuePtr(), buffer.getValuePtr(), size.getValuePtr()});
-    free->call({buffer.getValuePtr()});
+    memcpy->call({new_buffer, buffer, size});
+    free->call({buffer});
     eisdrache->jump(end);
 
     eisdrache->setBlock(empty);
@@ -596,9 +603,35 @@ Eisdrache::Array::Array(Eisdrache::Ptr eisdrache, Ty::Ptr elementTy, std::string
     eisdrache->jump(end);
     
     eisdrache->setBlock(end);
-    set_buffer->call({resize->arg(0).getValuePtr(), new_buffer.getValuePtr()});
+    set_buffer->call({resize->arg(0), new_buffer});
     Local &max_ptr = eisdrache->getElementPtr(resize->arg(0), 3, "max_ptr");
     eisdrache->storeValue(max_ptr, resize->arg(1));
+    eisdrache->createRet();
+    }
+
+    { // is_valid_index
+    is_valid_index = self->createMemberFunc(eisdrache->getBoolTy(), "is_valid_index",
+        {{"index", eisdrache->getSizeTy()}});
+    Local &max = get_max->call({is_valid_index->arg(0)}, "max");
+    eisdrache->createRet(eisdrache->binaryOp(LES, is_valid_index->arg(1), max, "equals"));
+    }
+
+    { // get_at_index
+    get_at_index = self->createMemberFunc(elementTy, "get_at_index", 
+        {{"index", eisdrache->getUnsignedTy(32)}});
+    Local &buffer = get_buffer->call({get_at_index->arg(0)}, "buffer");
+    Local &element_ptr = eisdrache->getArrayElement(buffer, get_at_index->arg(1), "element_ptr");
+    eisdrache->createRet(element_ptr.loadValue(true, "element"));
+    }
+
+    { // set_at_index
+    set_at_index = self->createMemberFunc(eisdrache->getVoidTy(), "set_at_index",
+        {{"index", eisdrache->getUnsignedTy(32)}, {"value", elementTy}});
+    Local &buffer = get_buffer->call({set_at_index->arg(0)}, "buffer");
+    Value *raw_ptr = eisdrache->getBuilder()->CreateGEP(bufferTy->getTy(), buffer.getValuePtr(), 
+        {set_at_index->arg(1).getValuePtr()}, "element_ptr");
+    Local element_ptr = Local(eisdrache, bufferTy, raw_ptr);
+    eisdrache->storeValue(element_ptr, set_at_index->arg(2));
     eisdrache->createRet();
     }
 }
@@ -623,10 +656,21 @@ Eisdrache::Local &Eisdrache::Array::call(Member callee, ValueVec args, std::stri
         case CONSTRUCTOR_SIZE:  return constructor_size->call(args, name);
         case DESTRUCTOR:        return destructor->call(args, name);
         case RESIZE:            return resize->call(args, name);
+        case IS_VALID_INDEX:    return is_valid_index->call(args, name);
+        case GET_AT_INDEX:      return get_at_index->call(args, name);
+        case SET_AT_INDEX:      return set_at_index->call(args, name);
         default:            
             Eisdrache::complain("Eisdrache::Array::call(): Callee not implemented.");
             return eisdrache->getCurrentParent().arg(0); // silence warning
     }
+}
+
+Eisdrache::Local &Eisdrache::Array::call(Member callee, Local::Vec args, std::string name) {
+    ValueVec raw_args = {};
+    for (Local &local : args)
+        raw_args.push_back(local.getValuePtr());
+
+    return call(callee, raw_args, name);
 }
 
 /// EISDRACHE WRAPPER ///
@@ -731,7 +775,15 @@ Eisdrache::Local &Eisdrache::callFunction(Func &wrap, ValueVec args, std::string
     return wrap.call(args, name);
 }
 
+Eisdrache::Local &Eisdrache::callFunction(Func &wrap, Local::Vec args, std::string name) { 
+    return wrap.call(args, name);
+}
+
 Eisdrache::Local &Eisdrache::callFunction(std::string callee, ValueVec args, std::string name) { 
+    return functions.at(callee).call(args, name);
+}
+
+Eisdrache::Local &Eisdrache::callFunction(std::string callee, Local::Vec args, std::string name) { 
     return functions.at(callee).call(args, name);
 }
  
@@ -1029,6 +1081,11 @@ Eisdrache::Local &Eisdrache::typeCast(Local &value, Ty::Ptr to, std::string name
 Eisdrache::Local &Eisdrache::getArrayElement(Local &array, size_t index, std::string name) {
     Value *ptr = builder->CreateGEP(array.getTy()->getTy(), array.getValuePtr(),
         {getInt(32, index)}, name);
+    return parent->addLocal(Local(shared_from_this(), array.getTy(), ptr));
+}
+
+Eisdrache::Local &Eisdrache::getArrayElement(Local &array, Eisdrache::Local &index, std::string name) {
+    Value *ptr = builder->CreateGEP(array.getTy()->getTy(), array.getValuePtr(), {index.getValuePtr()}, name);
     return parent->addLocal(Local(shared_from_this(), array.getTy(), ptr));
 }
 

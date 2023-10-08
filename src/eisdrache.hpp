@@ -61,12 +61,12 @@ public:
         EQU,    // equals               ==
         NEQ,    // not equals           !=
         LES,    // less than            <
-        LTE,    // less than equals     <=   
+        LTE,    // less than equals     <=
         GRE,    // greater than         >
-        GTE,    // greater than equals  >=   
+        GTE,    // greater than equals  >=
 
         NEG,    // negate               -
-        NOT,    // bit not              ~ 
+        NOT,    // bit not              ~
     };
 
     /**
@@ -366,6 +366,7 @@ public:
         Local &arg(size_t index);
         // call this function
         Local &call(ValueVec args = {}, std::string name = "");
+        Local &call(Local::Vec args = {}, std::string name = "");
         // add a local variable to this function
         // and return reference to copy of local
         Local &addLocal(Local local);
@@ -452,6 +453,9 @@ public:
             CONSTRUCTOR_SIZE,
             DESTRUCTOR,
             RESIZE,
+            IS_VALID_INDEX,
+            GET_AT_INDEX,
+            SET_AT_INDEX,
         };
 
         Array(Eisdrache::Ptr eisdrache = nullptr, Ty::Ptr elementTy = nullptr, std::string name = "");
@@ -459,6 +463,7 @@ public:
 
         Local &allocate(std::string name = "");
         Local &call(Member callee, ValueVec args = {}, std::string name = "");
+        Local &call(Member callee, Local::Vec args = {}, std::string name = "");
 
     private:
         std::string name;
@@ -478,6 +483,9 @@ public:
         Func *constructor_size = nullptr;
         Func *destructor = nullptr;
         Func *resize = nullptr;
+        Func *is_valid_index = nullptr;
+        Func *get_at_index = nullptr;
+        Func *set_at_index = nullptr;
 
         Eisdrache::Ptr eisdrache;
     };
@@ -564,7 +572,7 @@ public:
     Func &getWrap(Function *function);
 
     /**
-     * @brief Verify that a Eisdrache::Func is error-free.
+     * @brief Verify that a Eisdrache::Func is free of errors.
      *          TODO: Implement this function.
      * @param wrap Eisdrache::Func (wrapped llvm::Function)
      * @return true - Eisdrache::Func is error-free.
@@ -581,6 +589,17 @@ public:
      * @return Value * - Wrapped llvm::Value returned from call
      */
     Local &callFunction(Func &wrap, ValueVec args = {}, std::string name = "");
+
+    /**
+     * @brief Call a llvm::Function by its wrap.
+     * 
+     * @param wrap Eisdrache::Func (wrapped llvm::Function) of the callee function
+     * @param args (optional) Function call arguments
+     * @param name (optional) Name of the returned value
+     * @return Value * - Wrapped llvm::Value returned from call
+     */
+    Local &callFunction(Func &wrap, Local::Vec args = {}, std::string name = "");
+
     /**
      * @brief Call a llvm::Function by its name.
      * 
@@ -590,6 +609,16 @@ public:
      * @return Value * - Wrapped llvm::Value returned from call
      */
     Local &callFunction(std::string callee, ValueVec args = {}, std::string name = "");
+
+    /**
+     * @brief Call a llvm::Function by its name.
+     * 
+     * @param callee Name of the callee function
+     * @param args (optional) Function call arguments
+     * @param name (optional) Name of the returned value
+     * @return Value * - Wrapped llvm::Value returned from call
+     */
+    Local &callFunction(std::string callee, Local::Vec args = {}, std::string name = "");
 
     /// LOCALS ///
 
@@ -796,6 +825,16 @@ public:
      * @return Local & 
      */
     Local &getArrayElement(Local &array, size_t index, std::string name = "");
+
+    /**
+     * @brief Get the pointer to an element of an array.
+     * 
+     * @param array The array
+     * @param index The index of the element
+     * @param name (optional) The name of the returned pointer
+     * @return Local & 
+     */
+    Local &getArrayElement(Local &array, Local &index, std::string name = "");
 
     /**
      * @brief Check wether the given pointer is a nullptr and return result.
