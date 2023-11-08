@@ -22,12 +22,12 @@ using namespace llvm;
 
 int main(void) {
     Eisdrache::initialize();
-    Eisdrache *eisdrache = Eisdrache::create("test compiler");    
+    Eisdrache::Ptr eisdrache = Eisdrache::create("test compiler");    
 
     // i64 @puts(i8* nocapture)
     Eisdrache::Func &puts = eisdrache->declareFunction(eisdrache->getSignedTy(64), 
         "puts", {eisdrache->getUnsignedPtrTy(8)});
-    dyn_cast<Argument>(puts.arg(0).getValuePtr())->addAttr(Attribute::NoCapture);
+    puts.addAttr(Attribute::NoCapture, 0);
         
     // i64 @main(i64 %argc, i8** %argv)
     Eisdrache::Func &main = eisdrache->declareFunction(eisdrache->getSignedTy(64), "main", 

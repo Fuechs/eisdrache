@@ -371,6 +371,10 @@ public:
         // and return reference to copy of local
         Local &addLocal(Local local);
 
+        // add an attribute to the function or a parameter
+        void addAttr(Attribute attr, int64_t index = -1);
+        void addAttr(Attribute::AttrKind attr, int64_t index = -1);
+
         Ty::Ptr getTy();
 
         Kind kind() const override;

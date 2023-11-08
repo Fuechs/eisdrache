@@ -389,6 +389,20 @@ Eisdrache::Local &Eisdrache::Func::addLocal(Local local) {
     return locals[symbol];
 }
 
+void Eisdrache::Func::addAttr(Attribute attr, int64_t index) {
+    if (index < 0)
+        func->addFnAttr(attr);
+    else
+        func->getArg(index)->addAttr(attr);
+}
+
+void Eisdrache::Func::addAttr(Attribute::AttrKind attr, int64_t index) {
+    if (index < 0)
+        func->addFnAttr(attr);
+    else
+        func->getArg(index)->addAttr(attr);
+}
+
 Eisdrache::Ty::Ptr Eisdrache::Func::getTy() { return type; }
 
 Eisdrache::Entity::Kind Eisdrache::Func::kind() const { return FUNC; }
