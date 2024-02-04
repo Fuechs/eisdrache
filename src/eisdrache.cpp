@@ -2,10 +2,10 @@
  * @file eisdrache.cpp
  * @author fuechs
  * @brief Eisdrache class implementation
- * @version 0.3.1
+ * @version 0.3.2
  * @date 2023-10-01
  * 
- * @copyright Copyright (c) 2023, Fuechs.
+ * @copyright Copyright (c) 2023-2024, Fuechs.
  * 
  */
 
@@ -713,6 +713,12 @@ Eisdrache::Ptr Eisdrache::create(std::string moduleID, std::string targetTriple)
 }
 
 void Eisdrache::dump(raw_fd_ostream &os) { module->print(os, nullptr); }
+
+void Eisdrache::dump(const std::string &filePath) {
+    std::error_code EC;
+    raw_fd_ostream dumpFile(filePath, EC);
+    module->print(dumpFile, nullptr);
+}
 
 /// TYPES ///
 

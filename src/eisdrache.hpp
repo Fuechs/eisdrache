@@ -2,10 +2,10 @@
  * @file eisdrache.hpp
  * @author fuechs
  * @brief Eisdrache class header
- * @version 0.3.1
+ * @version 0.3.2
  * @date 2023-10-01
  * 
- * @copyright Copyright (c) 2023, Fuechs.
+ * @copyright Copyright (c) 2023-2024, Fuechs.
  * 
  */
 
@@ -503,6 +503,8 @@ public:
 
     // dump the generated LLVM IR
     void dump(raw_fd_ostream &os = errs());
+    // automatically create output stream
+    void dump(const std::string &filePath);
 
     /// TYPES //
 
