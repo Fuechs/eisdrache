@@ -375,6 +375,12 @@ public:
         void addAttr(Attribute attr, int64_t index = -1);
         void addAttr(Attribute::AttrKind attr, int64_t index = -1);
 
+        // set the calling convention of the function
+        void setCallingConv(CallingConv::ID conv);
+
+        // toggle no exception 
+        void setDoesNotThrow();
+
         Ty::Ptr getTy();
 
         Kind kind() const override;
@@ -455,6 +461,7 @@ public:
             SET_FACTOR,
             CONSTRUCTOR,
             CONSTRUCTOR_SIZE,
+            CONSTRUCTOR_COPY,
             DESTRUCTOR,
             RESIZE,
             IS_VALID_INDEX,
@@ -485,6 +492,7 @@ public:
         Func *set_factor = nullptr;
         Func *constructor = nullptr;
         Func *constructor_size = nullptr;
+        Func *constructor_copy = nullptr;
         Func *destructor = nullptr;
         Func *resize = nullptr;
         Func *is_valid_index = nullptr;

@@ -403,6 +403,10 @@ void Eisdrache::Func::addAttr(Attribute::AttrKind attr, int64_t index) {
         func->getArg(index)->addAttr(attr);
 }
 
+void Eisdrache::Func::setCallingConv(CallingConv::ID conv) { func->setCallingConv(conv); }
+
+void Eisdrache::Func::setDoesNotThrow() { func->setDoesNotThrow(); }
+
 Eisdrache::Ty::Ptr Eisdrache::Func::getTy() { return type; }
 
 Eisdrache::Entity::Kind Eisdrache::Func::kind() const { return FUNC; }
@@ -577,10 +581,17 @@ Eisdrache::Array::Array(Eisdrache::Ptr eisdrache, Ty::Ptr elementTy, std::string
     eisdrache->createRet();
     }
 
+    { // constructor_copy
+    constructor_copy = self->createMemberFunc(eisdrache->getVoidTy(), "constructor_copy", 
+        {{"original", self->getPtrTo()}});
+    // TODO: implement copy constructor
+    eisdrache->createRet();
+    }
+
     { // destructor
     destructor = self->createMemberFunc(eisdrache->getVoidTy(), "destructor");
-    (**destructor)->setCallingConv(CallingConv::Fast);
-    (**destructor)->setDoesNotThrow();
+    destructor->setCallingConv(CallingConv::Fast);
+    destructor->setDoesNotThrow();
     BasicBlock *free_begin = eisdrache->createBlock("free_begin");
     BasicBlock *free_close = eisdrache->createBlock("free_close");
     Local &buffer = get_buffer->call({destructor->arg(0)}, "buffer");
@@ -668,6 +679,7 @@ Eisdrache::Local &Eisdrache::Array::call(Member callee, ValueVec args, std::stri
         case SET_FACTOR:        return set_factor->call(args, name);
         case CONSTRUCTOR:       return constructor->call(args, name);
         case CONSTRUCTOR_SIZE:  return constructor_size->call(args, name);
+        case CONSTRUCTOR_COPY:  return constructor_copy->call(args, name);
         case DESTRUCTOR:        return destructor->call(args, name);
         case RESIZE:            return resize->call(args, name);
         case IS_VALID_INDEX:    return is_valid_index->call(args, name);
