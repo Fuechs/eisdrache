@@ -81,6 +81,7 @@ public:
         virtual ~Entity();
 
         enum Kind {
+            CONDITION,
             REFERENCE,
             LOCAL,
             FUNC,
@@ -331,6 +332,28 @@ public:
         Ty::Ptr type;
         Value *future;
         ValueVec future_args;
+        Eisdrache::Ptr eisdrache;
+    };
+
+    /**
+     * @brief Condition for branching.
+     * 
+     */
+    class Condition : public Entity {
+    public:
+        using Vec = std::vector<Condition>;
+    
+        Condition(Eisdrache::Ptr eisdrache, Op operation, Local &lhs, Local &rhs);
+        ~Condition() override;
+
+        Local &create();
+    
+        Kind kind() const override;
+
+        CmpInst::Predicate getPredicate(); 
+    private:
+        Op operation;  
+        Local lhs, rhs;      
         Eisdrache::Ptr eisdrache;
     };
 
@@ -870,6 +893,15 @@ public:
      * @return Local & 
      */
     Local &unaryOp(Op op, Local &expr, std::string name = "");
+
+    /**
+     * @brief Create a jump instructions and if / else blocks. Sets IRBuilder to first block.
+     * 
+     * @param conditions Each condition generates an if statement which will be nested into the first one
+     * @param blocks Blocks that should be executed depending on if the condition was true or false (1st = true, 2nd = false, 3rd = true...); For each condition two blocks are required
+     * @return BranchInst* 
+     */
+    BranchInst *ifStatement(Condition::Vec conditions, std::vector<std::string> blocks);
 
     /// GETTER ///
 

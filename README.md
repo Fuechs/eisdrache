@@ -1,7 +1,7 @@
 # Eisdrache
 
 > __Warning__ \
-> This project is unfinished. Use at your own risk.
+> This project is a work in progress. Use at your own risk.
 
 ### Custom wrapper for the LLVM API in C++
 

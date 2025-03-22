@@ -297,6 +297,64 @@ void Eisdrache::Local::invokeFuture() {
 
 Eisdrache::Entity::Kind Eisdrache::Local::kind() const { return LOCAL; }
 
+/// EISDRACHE CONDITION ///
+
+Eisdrache::Condition::Condition(Eisdrache::Ptr eisdrache, Op operation, Local &lhs, Local &rhs)
+    : eisdrache(eisdrache), operation(operation), lhs(lhs), rhs(rhs) { }
+
+Eisdrache::Condition::~Condition() { }
+
+Eisdrache::Local &Eisdrache::Condition::create() {
+    Value *cond = eisdrache->getBuilder()->CreateCmp(getPredicate(), lhs.getValuePtr(), rhs.getValuePtr());
+    return eisdrache->getCurrentParent().addLocal(Local(eisdrache, eisdrache->getBoolTy(), cond));
+}
+
+Eisdrache::Entity::Kind Eisdrache::Condition::kind() const { return CONDITION; }
+
+CmpInst::Predicate Eisdrache::Condition::getPredicate() {
+    Local &_lhs = lhs.loadValue();
+
+    if (!_lhs.getTy()->isValidRHS(rhs.loadValue().getTy())) {
+        Eisdrache::complain("Eisdrache::Condition::getPredicate(): Incompatible types.");
+    }
+
+    if (_lhs.getTy()->isFloatTy()) {
+        switch (operation) { // TODO: this assumes that the floats are ordered
+            case EQU:   return CmpInst::Predicate::FCMP_OEQ;
+            case NEQ:   return CmpInst::Predicate::FCMP_ONE;
+            case LES:   return CmpInst::Predicate::FCMP_OLT;
+            case LTE:   return CmpInst::Predicate::FCMP_OLE;
+            case GRE:   return CmpInst::Predicate::FCMP_OGT;
+            case GTE:   return CmpInst::Predicate::FCMP_OGE;
+            default:    Eisdrache::complain("Eisdrache::Condition::getPredicate(): Invalid operation.");
+        }
+    } else if (_lhs.getTy()->isIntTy()) {
+        if (_lhs.getTy()->isSignedTy())
+            switch (operation) {
+                case EQU:   return CmpInst::Predicate::ICMP_EQ;
+                case NEQ:   return CmpInst::Predicate::ICMP_NE;
+                case LES:   return CmpInst::Predicate::ICMP_SLT;
+                case LTE:   return CmpInst::Predicate::ICMP_SLE;
+                case GRE:   return CmpInst::Predicate::ICMP_SGT;
+                case GTE:   return CmpInst::Predicate::ICMP_SGE;
+                default:    Eisdrache::complain("Eisdrache::Condition::getPredicate(): Invalid operation.");
+            }
+        else 
+            switch (operation) {
+                case EQU:   return CmpInst::Predicate::ICMP_EQ;
+                case NEQ:   return CmpInst::Predicate::ICMP_NE;
+                case LES:   return CmpInst::Predicate::ICMP_ULT;
+                case LTE:   return CmpInst::Predicate::ICMP_ULE;
+                case GRE:   return CmpInst::Predicate::ICMP_UGT;
+                case GTE:   return CmpInst::Predicate::ICMP_UGE;
+                default:    Eisdrache::complain("Eisdrache::Condition::getPredicate(): Invalid operation.");
+            }
+    } else 
+        Eisdrache::complain("Eisdrache::Condition::getPredicate(): Invalid type.");
+    
+    return CmpInst::Predicate::BAD_ICMP_PREDICATE; // random value
+}
+
 /// EISDRACHE FUNC ///
 
 Eisdrache::Func::Func() {
@@ -1152,6 +1210,17 @@ Eisdrache::Local &Eisdrache::unaryOp(Op op, Local &expr, std::string name) {
 
     return parent->addLocal(ret);
 } 
+
+BranchInst *Eisdrache::ifStatement(Condition::Vec conditions, std::vector<std::string> blocks) {
+    std::vector<BasicBlock *> BBs = {};
+    for (std::string &name : blocks)
+        BBs.push_back(createBlock(name));
+
+    for (size_t i = 0; i < conditions.size(); i++)
+        break; // TODO: create jump instruction to each block here — finish Condition class first
+    
+    return nullptr;
+}
 
 /// GETTER ///
 
