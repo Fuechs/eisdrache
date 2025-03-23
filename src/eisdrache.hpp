@@ -1,11 +1,9 @@
 /**
  * @file eisdrache.hpp
- * @author fuechs
  * @brief Eisdrache class header
  * @version 0.3.2
- * @date 2023-10-01
  * 
- * @copyright Copyright (c) 2023-2024, Fuechs.
+ * @copyright Copyright (c) 2023-2025, Ari.
  * 
  */
 
@@ -304,6 +302,8 @@ public:
         std::string getName() const;
 
         bool isAlloca();
+        // Using this function should be avoided if the loaded value is required in the same block, as it creates unnecessary instructions
+        bool isValidRHS(Local &rhs);
 
         /**
          * @brief Load the value stored at the adress of the local.
@@ -895,13 +895,14 @@ public:
     Local &unaryOp(Op op, Local &expr, std::string name = "");
 
     /**
-     * @brief Create a jump instructions and if / else blocks. Sets IRBuilder to first block.
+     * @brief Create a jump instructions and if / else blocks. Sets IRBuilder to block 'then'.
      * 
-     * @param conditions Each condition generates an if statement which will be nested into the first one
-     * @param blocks Blocks that should be executed depending on if the condition was true or false (1st = true, 2nd = false, 3rd = true...); For each condition two blocks are required
-     * @return BranchInst* 
+     * @param conditions Condition that determines which block is jumped to
+     * @param then Block that is jumped to if condition is true
+     * @param else_ Block that is jumped to if condition is false
+     * @return BasicBLock * - Returns else_ block
      */
-    BranchInst *ifStatement(Condition::Vec conditions, std::vector<std::string> blocks);
+    BasicBlock *ifStatement(Condition condition, std::string then_name = "then_block", std::string else_name = "else_block");
 
     /// GETTER ///
 

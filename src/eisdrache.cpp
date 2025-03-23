@@ -1,11 +1,9 @@
 /**
  * @file eisdrache.cpp
- * @author fuechs
  * @brief Eisdrache class implementation
  * @version 0.3.2
- * @date 2023-10-01
  * 
- * @copyright Copyright (c) 2023-2024, Fuechs.
+ * @copyright Copyright (c) 2023-2025, Ari.
  * 
  */
 
@@ -263,6 +261,10 @@ std::string Eisdrache::Local::getName() const {
 
 bool Eisdrache::Local::isAlloca() { return dyn_cast<AllocaInst>(v_ptr); }
 
+bool Eisdrache::Local::isValidRHS(Local &rhs) {
+    return loadValue().getTy()->isValidRHS(rhs.loadValue().getTy());
+}
+
 Eisdrache::Local &Eisdrache::Local::loadValue(bool force, std::string name) {
     if ((!force && !isAlloca()) || !type->isPtrTy())
         return *this;
@@ -305,20 +307,20 @@ Eisdrache::Condition::Condition(Eisdrache::Ptr eisdrache, Op operation, Local &l
 Eisdrache::Condition::~Condition() { }
 
 Eisdrache::Local &Eisdrache::Condition::create() {
-    Value *cond = eisdrache->getBuilder()->CreateCmp(getPredicate(), lhs.getValuePtr(), rhs.getValuePtr());
+    Value *cond = eisdrache->getBuilder()->CreateCmp(getPredicate(), 
+        lhs.loadValue().getValuePtr(), rhs.loadValue().getValuePtr());
     return eisdrache->getCurrentParent().addLocal(Local(eisdrache, eisdrache->getBoolTy(), cond));
 }
 
 Eisdrache::Entity::Kind Eisdrache::Condition::kind() const { return CONDITION; }
 
 CmpInst::Predicate Eisdrache::Condition::getPredicate() {
-    Local &_lhs = lhs.loadValue();
+    Local &lhs_load = lhs.loadValue();
 
-    if (!_lhs.getTy()->isValidRHS(rhs.loadValue().getTy())) {
+    if (!lhs_load.getTy()->isValidRHS(rhs.loadValue().getTy())) 
         Eisdrache::complain("Eisdrache::Condition::getPredicate(): Incompatible types.");
-    }
 
-    if (_lhs.getTy()->isFloatTy()) {
+    if (lhs_load.getTy()->isFloatTy()) {
         switch (operation) { // TODO: this assumes that the floats are ordered
             case EQU:   return CmpInst::Predicate::FCMP_OEQ;
             case NEQ:   return CmpInst::Predicate::FCMP_ONE;
@@ -328,8 +330,8 @@ CmpInst::Predicate Eisdrache::Condition::getPredicate() {
             case GTE:   return CmpInst::Predicate::FCMP_OGE;
             default:    Eisdrache::complain("Eisdrache::Condition::getPredicate(): Invalid operation.");
         }
-    } else if (_lhs.getTy()->isIntTy()) {
-        if (_lhs.getTy()->isSignedTy())
+    } else if (lhs_load.getTy()->isIntTy()) {
+        if (lhs_load.getTy()->isSignedTy())
             switch (operation) {
                 case EQU:   return CmpInst::Predicate::ICMP_EQ;
                 case NEQ:   return CmpInst::Predicate::ICMP_NE;
@@ -1211,15 +1213,14 @@ Eisdrache::Local &Eisdrache::unaryOp(Op op, Local &expr, std::string name) {
     return parent->addLocal(ret);
 } 
 
-BranchInst *Eisdrache::ifStatement(Condition::Vec conditions, std::vector<std::string> blocks) {
-    std::vector<BasicBlock *> BBs = {};
-    for (std::string &name : blocks)
-        BBs.push_back(createBlock(name));
+BasicBlock *Eisdrache::ifStatement(Condition condition, std::string then_name, std::string else_name) {
+    BasicBlock *then = createBlock(then_name);
+    BasicBlock *else_ = createBlock(else_name);
 
-    for (size_t i = 0; i < conditions.size(); i++)
-        break; // TODO: create jump instruction to each block here — finish Condition class first
-    
-    return nullptr;
+    jump(condition.create(), then, else_);
+    setBlock(then);
+
+    return else_;
 }
 
 /// GETTER ///
