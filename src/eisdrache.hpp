@@ -75,7 +75,7 @@ public:
     public:
         using Vec = std::vector<Entity>;
 
-        explicit Entity(Eisdrache::Ptr eisdrache = nullptr);
+        explicit Entity(Ptr eisdrache = nullptr);
         virtual ~Entity();
 
         enum Kind {
@@ -95,7 +95,7 @@ public:
         [[nodiscard]] virtual Kind kind() const = 0;
 
     protected:
-        Eisdrache::Ptr eisdrache;
+        Ptr eisdrache;
     };
 
     /**
@@ -252,7 +252,7 @@ public:
     public:
         using Vec = std::vector<Reference>;
 
-        explicit Reference(Eisdrache::Ptr eisdrache = nullptr, std::string symbol = "");
+        explicit Reference(Ptr eisdrache = nullptr, std::string symbol = "");
         ~Reference() override;
 
         Reference &operator=(const Reference &copy);
@@ -266,7 +266,6 @@ public:
 
     private:
         std::string symbol;
-        Eisdrache::Ptr eisdrache;
     };
 
     /**
@@ -283,8 +282,8 @@ public:
         using Vec = std::vector<Local>;
         using Map = std::map<std::string, Local>;
 
-        Local(Eisdrache::Ptr eisdrache, Constant *constant);
-        explicit Local(Eisdrache::Ptr eisdrache = nullptr, Ty::Ptr type = nullptr, Value *ptr = nullptr, Value *future = nullptr, ValueVec future_args = ValueVec());
+        Local(Ptr eisdrache, Constant *constant);
+        explicit Local(Ptr eisdrache = nullptr, Ty::Ptr type = nullptr, Value *ptr = nullptr, Value *future = nullptr, ValueVec future_args = ValueVec());
         
         Local &operator=(const Local &copy);
         bool operator==(const Local &comp) const;
@@ -332,7 +331,6 @@ public:
         Ty::Ptr type;
         Value *future;
         ValueVec future_args;
-        Eisdrache::Ptr eisdrache;
     };
 
     /**
@@ -343,7 +341,7 @@ public:
     public:
         using Vec = std::vector<Condition>;
     
-        Condition(Eisdrache::Ptr eisdrache, Op operation, const Local &lhs, const Local &rhs);
+        Condition(Ptr eisdrache, Op operation, const Local &lhs, const Local &rhs);
         ~Condition() override;
 
         Local &create();
@@ -354,7 +352,6 @@ public:
     private:
         Op operation;  
         Local lhs, rhs;      
-        Eisdrache::Ptr eisdrache;
     };
 
     /**
@@ -374,7 +371,7 @@ public:
         using Map = std::map<std::string, Func>;
 
         Func();
-        Func(Eisdrache::Ptr eisdrache, Ty::Ptr type, const std::string &name, const Ty::Map &parameters, bool entry = false);
+        Func(Ptr eisdrache, Ty::Ptr type, const std::string &name, const Ty::Map &parameters, bool entry = false);
         ~Func() override;
 
         Func &operator=(const Func &copy);
@@ -413,8 +410,6 @@ public:
         Ty::Ptr type;
         Local::Vec parameters;
         Local::Map locals;
-
-        Eisdrache::Ptr eisdrache;
     };
 
     /**
@@ -492,7 +487,7 @@ public:
             SET_AT_INDEX,
         };
 
-        explicit Array(Eisdrache::Ptr eisdrache = nullptr, Ty::Ptr elementTy = nullptr, const std::string &name = "");
+        explicit Array(Ptr eisdrache = nullptr, Ty::Ptr elementTy = nullptr, const std::string &name = "");
         ~Array();
 
         [[nodiscard]] Local &allocate(const std::string &name = "") const;
@@ -522,7 +517,7 @@ public:
         Func *get_at_index = nullptr;
         Func *set_at_index = nullptr;
 
-        Eisdrache::Ptr eisdrache;
+        Ptr eisdrache;
     };
 
     ~Eisdrache();
@@ -588,7 +583,7 @@ public:
      * @param parameters parameters of the function 
      * @return Func & - Eisdrache::Func (wrapped llvm::Function)
      */
-    Func &declareFunction(Ty::Ptr type, const std::string &name, const Ty::Vec &parameters);
+    Func &declareFunction(const Ty::Ptr &type, const std::string &name, const Ty::Vec &parameters);
     /**
      * @brief Declare a llvm::Function.
      * 
@@ -598,7 +593,7 @@ public:
      * @param entry (optional) creates entry llvm::BasicBlock in the function body if true
      * @return Func & - Eisdrache::Func (wrapped llvm::Function)
      */
-    Func &declareFunction(Ty::Ptr type, const std::string &name, const Ty::Map &parameters = Ty::Map(), bool entry = false);
+    Func &declareFunction(const Ty::Ptr &type, const std::string &name, const Ty::Map &parameters = Ty::Map(), bool entry = false);
     
     /**
      * @brief Get the Eisdrache::Func wrapper object
