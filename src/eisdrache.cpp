@@ -839,6 +839,8 @@ ConstantFP *Eisdrache::getFloat(const double value) const { return ConstantFP::g
 
 Constant *Eisdrache::getLiteral(const std::string &value, const std::string &name) const { return builder->CreateGlobalString(value, name); }
 
+Eisdrache::Local &Eisdrache::getNull() { return nullLocal ? *nullLocal : *(nullLocal = new Local(shared_from_this())); }
+
 ConstantPointerNull *Eisdrache::getNullPtr(const Ty::Ptr &ptrTy) { return ConstantPointerNull::get(dyn_cast<PointerType>(ptrTy->getTy())); }
 
 /// FUNCTIONS ///
@@ -1212,6 +1214,7 @@ Eisdrache::Eisdrache(LLVMContext *context, Module *module, IRBuilder<> *builder,
     this->context = context;
     this->module = module;
     this->builder = builder;
+    nullLocal = nullptr;
     parent = nullptr;
     functions = Func::Map();
     structs = Struct::Map();

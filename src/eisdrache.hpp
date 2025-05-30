@@ -320,7 +320,7 @@ public:
          *      (`future_args` too)
          */
         void invokeFuture();
-        
+
         [[nodiscard]] Kind kind() const override;
 
     private:
@@ -570,6 +570,9 @@ public:
     ConstantFP *getFloat(double value) const;
     
     Constant *getLiteral(const std::string &value, const std::string &name = "") const;
+
+    // returns `nullLocal`, an empty local representing null
+    Local &getNull();
     
     static ConstantPointerNull *getNullPtr(const Ty::Ptr &ptrTy) ;
 
@@ -970,6 +973,7 @@ private:
     Module *module;
     IRBuilder<> *builder;
 
+    Local *nullLocal; // empty local representing null
     Func *parent; // current parent function
 
     Func::Map functions;
