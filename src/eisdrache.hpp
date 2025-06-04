@@ -451,7 +451,7 @@ public:
          * @param args Additional parameters
          * @return Func * 
          */
-        Func *createMemberFunc(Ty::Ptr type, const std::string &name, const Ty::Map &args = Ty::Map());
+        Func *createMemberFunc(const Ty::Ptr& type, const std::string &name, const Ty::Map &args = Ty::Map());
 
         Type *getTy() const override;
 

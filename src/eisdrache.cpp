@@ -520,11 +520,11 @@ Eisdrache::Local &Eisdrache::Struct::allocate(const std::string &name) {
     return eisdrache->getCurrentParent().addLocal(Local(eisdrache, shared_from_this(), alloca));
 } 
 
-Eisdrache::Func *Eisdrache::Struct::createMemberFunc(Ty::Ptr type, const std::string &name, const Ty::Map &args) {
+Eisdrache::Func *Eisdrache::Struct::createMemberFunc(const Ty::Ptr &type, const std::string &name, const Ty::Map &args) {
     Ty::Map processed = {{"this", getPtrTo()}};
     for (const Ty::Map::value_type &x : args)
         processed.push_back(x);
-    return &eisdrache->declareFunction(std::move(type), this->name+"_"+name, processed, true);
+    return &eisdrache->declareFunction(type, this->name+"_"+name, processed, true);
 }
 
 Type *Eisdrache::Struct::getTy() const { return type; }
@@ -553,17 +553,17 @@ Eisdrache::Array::Array(Eisdrache::Ptr eisdrache, Ty::Ptr elementTy, const std::
     });
 
     Func *malloc = nullptr;
-    if (!(malloc = eisdrache->getFunc("malloc")))
+    if (!((malloc = eisdrache->getFunc("malloc"))))
         malloc = &eisdrache->declareFunction(eisdrache->getUnsignedPtrTy(8), "malloc", 
             {eisdrache->getSizeTy()});
 
     Func *free = nullptr;
-    if (!(free = eisdrache->getFunc("free")))
+    if (!((free = eisdrache->getFunc("free"))))
         free = &eisdrache->declareFunction(eisdrache->getVoidTy(), "free",
             {eisdrache->getUnsignedPtrTy(8)});
 
     Func *memcpy = nullptr;
-    if (!(memcpy = eisdrache->getFunc("memcpy")))
+    if (!((memcpy = eisdrache->getFunc("memcpy"))))
         memcpy = &eisdrache->declareFunction(eisdrache->getUnsignedPtrTy(8), "memcpy",
             {eisdrache->getUnsignedPtrTy(8), 
                 eisdrache->getUnsignedPtrTy(8), 
@@ -869,7 +869,7 @@ Eisdrache::Func &Eisdrache::getWrap(const Function *function) {
 }
 
 bool Eisdrache::verifyFunc(const Func &wrap) {
-    return llvm::verifyFunction(**wrap); 
+    return verifyFunction(**wrap);
 }
 
 Eisdrache::Local &Eisdrache::callFunction(const Func &wrap, const ValueVec &args, const std::string &name) {
@@ -1050,7 +1050,7 @@ Eisdrache::Local &Eisdrache::binaryOp(const Op op, Local &LHS, Local &RHS, std::
             bop.setPtr(builder->CreateLShr(l.getValuePtr(), r.getValuePtr(), name.empty() ? "rshtmp" : name)); 
             break;
         default:
-            Eisdrache::complain("Eisdrache::binaryOp(): Operation (ID "+std::to_string(op)+") not implemented.");
+            complain("Eisdrache::binaryOp(): Operation (ID "+std::to_string(op)+") not implemented.");
     }
 
     return parent->addLocal(bop);
