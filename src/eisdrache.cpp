@@ -25,7 +25,7 @@ Eisdrache::Entity::~Entity() = default;
 Eisdrache::Ty::Ty(Eisdrache::Ptr eisdrache) { this->eisdrache = std::move(eisdrache); }
 
 Eisdrache::Ty::Ptr Eisdrache::Ty::create(const Eisdrache::Ptr &eisdrache, const Type *llvmTy) {
-    Ty::Ptr that = nullptr;
+    Ptr that = nullptr;
     switch (llvmTy->getTypeID()) {
         case Type::IntegerTyID:
             that = std::make_shared<IntTy>(eisdrache, llvmTy->getIntegerBitWidth());
@@ -43,11 +43,11 @@ Eisdrache::Ty::Ptr Eisdrache::Ty::create(const Eisdrache::Ptr &eisdrache, const 
             that = std::make_shared<PtrTy>(eisdrache, eisdrache->getVoidTy()); 
             break;
         case Type::StructTyID:
-            Eisdrache::complain("Eisdrache::Ty::Ty(): Can not construct Eisdrache::Ty from a llvm::Type with ID: Type::StructTyID.");
+            complain("Eisdrache::Ty::Ty(): Can not construct Eisdrache::Ty from a llvm::Type with ID: Type::StructTyID.");
         case Type::FunctionTyID:
-            Eisdrache::complain("Eisdrache::Ty::Ty(): Can not construct Eisdrache::Ty from a llvm::Type with ID: Type::FunctionTyID.");
+            complain("Eisdrache::Ty::Ty(): Can not construct Eisdrache::Ty from a llvm::Type with ID: Type::FunctionTyID.");
         case Type::ArrayTyID:
-            Eisdrache::complain("Eisdrache::Ty::Ty(): Can not construct Eisdrache::Ty from a llvm::Type with ID: Type::ArrayTyID.");
+            complain("Eisdrache::Ty::Ty(): Can not construct Eisdrache::Ty from a llvm::Type with ID: Type::ArrayTyID.");
         default:
             break;
     }
@@ -163,7 +163,7 @@ Type *Eisdrache::FloatTy::getTy() const {
         case 32:    return Type::getFloatTy(*eisdrache->getContext());
         case 64:    return Type::getDoubleTy(*eisdrache->getContext());
         case 128:   return Type::getFP128Ty(*eisdrache->getContext());
-        default:    return Eisdrache::complain("Eisdrache::FloatTy::getTy(): Invalid amount of bits ("+std::to_string(bit)+").");
+        default:    return complain("Eisdrache::FloatTy::getTy(): Invalid amount of bits ("+std::to_string(bit)+").");
     }
 }
 
@@ -300,8 +300,9 @@ void Eisdrache::Local::invokeFuture() {
             future = nullptr;
             future_args.clear();
             return;
-        } else 
-            future = eisdrache->getBuilder()->CreateCall(func, future_args, getName()+"_future");
+        }
+
+        future = eisdrache->getBuilder()->CreateCall(func, future_args, getName()+"_future");
     } 
 
     eisdrache->getBuilder()->CreateStore(future, v_ptr);
@@ -330,7 +331,7 @@ CmpInst::Predicate Eisdrache::Condition::getPredicate() {
     Local &lhs_load = lhs.loadValue();
 
     if (!lhs_load.getTy()->isValidRHS(rhs.loadValue().getTy())) 
-        Eisdrache::complain("Eisdrache::Condition::getPredicate(): Incompatible types.");
+        complain("Eisdrache::Condition::getPredicate(): Incompatible types.");
 
     if (lhs_load.getTy()->isFloatTy()) {
         switch (operation) { // TODO: this assumes that the floats are ordered
@@ -340,7 +341,7 @@ CmpInst::Predicate Eisdrache::Condition::getPredicate() {
             case LTE:   return CmpInst::Predicate::FCMP_OLE;
             case GRE:   return CmpInst::Predicate::FCMP_OGT;
             case GTE:   return CmpInst::Predicate::FCMP_OGE;
-            default:    Eisdrache::complain("Eisdrache::Condition::getPredicate(): Invalid operation.");
+            default:    complain("Eisdrache::Condition::getPredicate(): Invalid operation.");
         }
     } else if (lhs_load.getTy()->isIntTy()) {
         if (lhs_load.getTy()->isSignedTy())
@@ -351,7 +352,7 @@ CmpInst::Predicate Eisdrache::Condition::getPredicate() {
                 case LTE:   return CmpInst::Predicate::ICMP_SLE;
                 case GRE:   return CmpInst::Predicate::ICMP_SGT;
                 case GTE:   return CmpInst::Predicate::ICMP_SGE;
-                default:    Eisdrache::complain("Eisdrache::Condition::getPredicate(): Invalid operation.");
+                default:    complain("Eisdrache::Condition::getPredicate(): Invalid operation.");
             }
         else 
             switch (operation) {
@@ -361,10 +362,10 @@ CmpInst::Predicate Eisdrache::Condition::getPredicate() {
                 case LTE:   return CmpInst::Predicate::ICMP_ULE;
                 case GRE:   return CmpInst::Predicate::ICMP_UGT;
                 case GTE:   return CmpInst::Predicate::ICMP_UGE;
-                default:    Eisdrache::complain("Eisdrache::Condition::getPredicate(): Invalid operation.");
+                default:    complain("Eisdrache::Condition::getPredicate(): Invalid operation.");
             }
     } else 
-        Eisdrache::complain("Eisdrache::Condition::getPredicate(): Invalid type.");
+        complain("Eisdrache::Condition::getPredicate(): Invalid type.");
     
     return CmpInst::Predicate::BAD_ICMP_PREDICATE; // random value
 }
@@ -434,7 +435,7 @@ Eisdrache::Local &Eisdrache::Func::operator[](const std::string &symbol) {
         if (param.getName() == symbol)
             return param;
     
-    Eisdrache::complain("Eisdrache::Func::operator[]: Symbol not found: %"+symbol+".");
+    complain("Eisdrache::Func::operator[]: Symbol not found: %"+symbol+".");
     return locals.begin()->second; // silence warning
 }
 
@@ -551,7 +552,7 @@ Eisdrache::Entity::Kind Eisdrache::Struct::kind() const { return STRUCT; }
 
 /// EISDRACHE ARRAY ///
 
-Eisdrache::Array::Array(Eisdrache::Ptr eisdrache, Ty::Ptr elementTy, const std::string &name) {
+Eisdrache::Array::Array(Ptr eisdrache, Ty::Ptr elementTy, const std::string &name) {
     this->eisdrache = std::move(eisdrache);
     this->name = name;
     this->elementTy = elementTy;
@@ -764,7 +765,7 @@ Eisdrache::Local &Eisdrache::Array::call(Member callee, const ValueVec &args, co
         case GET_AT_INDEX:      return get_at_index->call(args, name);
         case SET_AT_INDEX:      return set_at_index->call(args, name);
         default:            
-            Eisdrache::complain("Eisdrache::Array::call(): Callee not implemented.");
+            complain("Eisdrache::Array::call(): Callee not implemented.");
             return eisdrache->getCurrentParent().arg(0); // silence warning
     }
 }
@@ -917,14 +918,14 @@ Eisdrache::Local &Eisdrache::loadLocal(Local &local, const std::string &name) { 
 
 StoreInst *Eisdrache::storeValue(Local &local, Local &value) const {
     if (!local.getTy()->isPtrTy())
-        return Eisdrache::complain("Eisdrache::storeValue(): Local is not a pointer (%"+local.getName()+").");
+        return complain("Eisdrache::storeValue(): Local is not a pointer (%"+local.getName()+").");
     
     return builder->CreateStore(value.getValuePtr(), local.getValuePtr());
 } 
 
 StoreInst *Eisdrache::storeValue(Local &local, Constant *value) const {
     if (!local.getTy()->isPtrTy())
-        return Eisdrache::complain("Eisdrache::storeValue(): Local is not a pointer.");
+        return complain("Eisdrache::storeValue(): Local is not a pointer.");
     
     return builder->CreateStore(value, local.getValuePtr());
 }
@@ -1014,7 +1015,7 @@ Eisdrache::Local &Eisdrache::binaryOp(const Op op, Local &LHS, Local &RHS, std::
     Ty::Ptr ty = l.getTy();
     Local bop = Local(shared_from_this(), ty); 
     if (!ty->isValidRHS(r.getTy()))
-        Eisdrache::complain("Eisdrache::binaryOp(): LHS and RHS types differ too much.");
+        complain("Eisdrache::binaryOp(): LHS and RHS types differ too much.");
 
     switch (op) {
         case ADD:

@@ -329,7 +329,7 @@ public:
          * the compiler otherwise would have to differentiate dereferences and e.g., only dereference
          * once for assignments, as the store instruction still requires a pointer, while other instructions
          * require the immediate value stored at the pointer and thus would have to be dereferenced twice.
-         * <code lang="cpp">
+         * <code>
          * int *x;
          * *x = *x + 1;
          * </code>
