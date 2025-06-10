@@ -208,17 +208,18 @@ Eisdrache::Entity::Kind Eisdrache::Reference::kind() const { return REFERENCE; }
 /// EISDRACHE LOCAL ///
 
 Eisdrache::Local::Local(Ptr eisdrache, Constant *constant)
-: Entity(std::move(eisdrache)), v_ptr(constant),
+: Entity(std::move(eisdrache)), dereferenced(false), v_ptr(constant),
     type(eisdrache->addTy(Ty::create(eisdrache, constant->getType()))), future(nullptr) {}
 
 Eisdrache::Local::Local(Ptr eisdrache, Ty::Ptr type, Value *ptr, Value *future, ValueVec future_args)
-: Entity(std::move(eisdrache)), v_ptr(ptr), type(std::move(type)),
+: Entity(std::move(eisdrache)), dereferenced(false), v_ptr(ptr), type(std::move(type)),
     future(future), future_args(std::move(future_args)) {}
 
 Eisdrache::Local& Eisdrache::Local::operator=(const Local &copy) {
     if (this == &copy)
         return *this;
 
+    dereferenced = copy.dereferenced;
     v_ptr = copy.v_ptr;
     type = copy.type;
     future = copy.future;
@@ -267,7 +268,7 @@ bool Eisdrache::Local::isValidRHS(Local &rhs) {
 }
 
 Eisdrache::Local &Eisdrache::Local::loadValue(bool force, const std::string &name) {
-    if ((!force && !isAlloca()) || !type->isPtrTy())
+    if ((!force && !isAlloca() && !dereferenced) || !type->isPtrTy())
         return *this;
 
     if (isAlloca())
@@ -276,7 +277,17 @@ Eisdrache::Local &Eisdrache::Local::loadValue(bool force, const std::string &nam
     Ty::Ptr loadTy = dynamic_cast<PtrTy *>(type.get())->getPointeeTy();
     LoadInst *load = eisdrache->getBuilder()->CreateLoad(loadTy->getTy(), 
         v_ptr, name.empty() ? v_ptr->getName().str()+"_load" : name);
-    return eisdrache->getCurrentParent().addLocal(Local(eisdrache, loadTy, load));
+    Local local = Local(eisdrache, loadTy, load);
+    local.dereferenced = dereferenced;
+    return eisdrache->getCurrentParent().addLocal(local);
+}
+
+Eisdrache::Local &Eisdrache::Local::dereference(const std::string &name) {
+    // this should only dereference once in all cases
+    // further operations should dereference further if required
+
+    dereferenced = true;
+    return loadValue(true, name);
 }
 
 void Eisdrache::Local::invokeFuture() {
@@ -892,7 +903,14 @@ Eisdrache::Local &Eisdrache::callFunction(const std::string &callee, const Local
 
 Eisdrache::Local &Eisdrache::declareLocal(const Ty::Ptr &type, const std::string &name, Value *value, const ValueVec &future_args) {
     AllocaInst *alloca = builder->CreateAlloca(type->getTy(), nullptr, name);
-    return parent->addLocal(Local(shared_from_this(), type->getPtrTo(), alloca, value, future_args));
+    Local &local = parent->addLocal(Local(shared_from_this(), type->getPtrTo(), alloca, value, future_args));
+
+    if (type->isPtrTy()) {
+        auto cast = dynamic_cast<PtrTy *>(type.get());
+        local.setFuture(declareLocal(cast->getPointeeTy(), name+"_deep").getValuePtr());
+    }
+
+    return local;
 }
 
 Eisdrache::Local &Eisdrache::loadLocal(Local &local, const std::string &name) { return local.loadValue(); }

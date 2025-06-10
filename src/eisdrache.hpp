@@ -306,12 +306,53 @@ public:
 
         /**
          * @brief Load the value stored at the address of the local.
+         *
+         * Do <i>NOT</i> use this if you intend to implement dereferencing in a compiler.\n
+         * Use Local::dereference() instead.
          * 
          * @param force Load value even if Local is not an alloca instruction
          * @param name Name of the loaded value
          * @return Local & 
          */
         Local &loadValue(bool force = false, const std::string &name = "");
+
+        /**
+         * @brief Dereference the stored value of the local.
+         *
+         * This function forcibly loads the value of the local and marks it as manually dereferenced.
+         * If `dereferenced` is true, the loaded value will still be technically treated as an allocation instruction,
+         * and thus doesn't have to be forcibly loaded. Usually, other functions in the Eisdrache wrapper
+         * (e.g., binaryOp()) check if locals were created as an allocation instruction
+         * and automatically dereference them for convenience to use the stored value in operations.
+         *
+         * This function is useful when generating code involving pointers;
+         * the compiler otherwise would have to differentiate dereferences and e.g., only dereference
+         * once for assignments, as the store instruction still requires a pointer, while other instructions
+         * require the immediate value stored at the pointer and thus would have to be dereferenced twice.
+         * <code lang="cpp">
+         * int *x;
+         * *x = *x + 1;
+         * </code>
+         * <br>
+         *
+         * The C++ code above looks roughly like this in LLVM IR:
+         * (without intrinsic types and initialization for readability)
+         * <code>
+         * %x = alloca i32**                        ; declaration; note that it declares i32**,
+         *                                                         while the original C++ code declared i32* (int*)
+         * %x_load = load i32*, i32** %x            ; first load
+         * %x_load_load = load i32, i32* %x_load    ; second load; the actual value stored at the address x
+         * %add = add i32 1, i32 %x_load_load       ; addition
+         * store i32 %add, i32* %x_load             ; store; the result is assigned to x
+         *                 ^^^^^^^^^^^^ the store instruction requires the pointer to the value stored at x,
+         *                              while the addition required the actual value
+         * </code>
+         *
+         * @param name Name of the dereferenced value
+         * @return Local &
+         */
+        Local &dereference(const std::string &name = "");
+
         /**
          * @brief This function should be called automatically when trying to access `v_ptr` or `a_ptr`.
          *      However, the user can call this function themselves if required.
@@ -324,6 +365,7 @@ public:
         [[nodiscard]] Kind kind() const override;
 
     private:
+        bool dereferenced; // whether the user manually dereferenced the local
         union {
             Value *v_ptr;
             AllocaInst *a_ptr;
