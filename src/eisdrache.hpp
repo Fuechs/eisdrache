@@ -338,8 +338,7 @@ public:
          * The C++ code above looks roughly like this in LLVM IR:
          * (without intrinsic types and initialization for readability)
          * <code>
-         * %x = alloca i32**                        ; declaration; note that it declares i32**,
-         *                                                         while the original C++ code declared i32* (int*)
+         * %x = alloca i32**                        ; declaration; note that it declares i32**, while the original C++ code declared i32* (int*)
          * %x_load = load i32*, i32** %x            ; first load
          * %x_load_load = load i32, i32* %x_load    ; second load; the actual value stored at the address x
          * %add = add i32 1, i32 %x_load_load       ; addition
