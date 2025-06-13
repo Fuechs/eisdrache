@@ -73,9 +73,10 @@ public:
      */
     class Entity {
     public:
-        using Vec = std::vector<Entity>;
+        using Ptr = std::shared_ptr<Entity>;
+        using Vec = std::vector<Ptr>;
 
-        explicit Entity(Ptr eisdrache = nullptr);
+        explicit Entity(Eisdrache::Ptr eisdrache = nullptr);
         virtual ~Entity();
 
         enum Kind {
@@ -95,7 +96,7 @@ public:
         [[nodiscard]] virtual Kind kind() const = 0;
 
     protected:
-        Ptr eisdrache;
+        Eisdrache::Ptr eisdrache;
     };
 
     /**
@@ -252,7 +253,7 @@ public:
     public:
         using Vec = std::vector<Reference>;
 
-        explicit Reference(Ptr eisdrache = nullptr, std::string symbol = "");
+        explicit Reference(Eisdrache::Ptr eisdrache = nullptr, std::string symbol = "");
         ~Reference() override;
 
         Reference &operator=(const Reference &copy);
@@ -277,13 +278,14 @@ public:
      * * and the value to be assigned once the value is referenced. 
      * (Relevant for llvm::AllocaInst)
      */
-    class Local : public Entity {
+    class Local : public Entity, public std::enable_shared_from_this<Local> {
     public:
-        using Vec = std::vector<Local>;
-        using Map = std::map<std::string, Local>;
+        using Ptr = std::shared_ptr<Local>;
+        using Vec = std::vector<Ptr>;
+        using Map = std::map<std::string, Ptr>;
 
-        Local(Ptr eisdrache, Constant *constant);
-        explicit Local(Ptr eisdrache = nullptr, Ty::Ptr type = nullptr, Value *ptr = nullptr, Value *future = nullptr, ValueVec future_args = ValueVec());
+        Local(Eisdrache::Ptr eisdrache, Constant *constant);
+        explicit Local(Eisdrache::Ptr eisdrache = nullptr, Ty::Ptr type = nullptr, Value *ptr = nullptr, Value *future = nullptr, ValueVec future_args = ValueVec());
         
         Local &operator=(const Local &copy);
         bool operator==(const Local &comp) const;
@@ -312,9 +314,9 @@ public:
          * 
          * @param force Load value even if Local is not an alloca instruction
          * @param name Name of the loaded value
-         * @return Local & 
+         * @return Local::Ptr
          */
-        Local &loadValue(bool force = false, const std::string &name = "");
+         Ptr loadValue(bool force = false, const std::string &name = "");
 
         /**
          * @brief Dereference the stored value of the local.
@@ -348,9 +350,9 @@ public:
          * </code>
          *
          * @param name Name of the dereferenced value
-         * @return Local &
+         * @return Local::Ptr
          */
-        Local &dereference(const std::string &name = "");
+        Ptr dereference(const std::string &name = "");
 
         /**
          * @brief This function should be called automatically when trying to access `v_ptr` or `a_ptr`.
@@ -382,17 +384,17 @@ public:
     public:
         using Vec = std::vector<Condition>;
     
-        Condition(Ptr eisdrache, Op operation, const Local &lhs, const Local &rhs);
+        Condition(Eisdrache::Ptr eisdrache, Op operation, Local::Ptr lhs, Local::Ptr rhs);
         ~Condition() override;
 
-        Local &create();
+        Local::Ptr create();
     
         [[nodiscard]] Kind kind() const override;
 
-        CmpInst::Predicate getPredicate(); 
+        CmpInst::Predicate getPredicate() const;
     private:
         Op operation;  
-        Local lhs, rhs;      
+        Local::Ptr lhs, rhs;
     };
 
     /**
@@ -408,29 +410,30 @@ public:
      */
     class Func : public Entity {
     public:
-        using Vec = std::vector<Func>;
-        using Map = std::map<std::string, Func>;
+        using Ptr = std::shared_ptr<Func>;
+        using Vec = std::vector<Ptr>;
+        using Map = std::map<std::string, Ptr>;
 
         Func();
-        Func(Ptr eisdrache, Ty::Ptr type, const std::string &name, const Ty::Map &parameters, bool entry = false);
+        Func(Eisdrache::Ptr eisdrache, Ty::Ptr type, const std::string &name, const Ty::Map &parameters, bool entry = false);
         ~Func() override;
 
         Func &operator=(const Func &copy);
         bool operator==(const Func &comp) const;
         bool operator==(const Function *comp) const;
         // update reference local by symbol
-        Local &operator[](const std::string &symbol);
+        Local::Ptr operator[](const std::string &symbol);
         // get the wrapped llvm::Function
         Function *operator*() const;
 
         // get argument at index
-        Local &arg(size_t index);
+        Local::Ptr arg(size_t index);
         // call this function
-        Local &call(const ValueVec &args = {}, const std::string &name = "") const;
-        Local &call(Local::Vec args = {}, const std::string &name = "") const;
+        Local::Ptr call(const ValueVec &args = {}, const std::string &name = "") const;
+        Local::Ptr call(const Local::Vec &args = {}, const std::string &name = "") const;
         // add a local variable to this function
         // and return reference to copy of local
-        Local &addLocal(const Local &local);
+        Local::Ptr addLocal(const Local::Ptr &local);
 
         // add an attribute to the function or a parameter
         void addAttr(Attribute attr, int64_t index = -1) const;
@@ -443,6 +446,7 @@ public:
         void setDoesNotThrow() const;
 
         Ty::Ptr getTy();
+        std::string getName() const;
 
         [[nodiscard]] Kind kind() const override;
 
@@ -481,7 +485,7 @@ public:
         StructType *operator*() const;
         
         // allocate object of this type
-        Local &allocate(const std::string &name = "");
+        Local::Ptr allocate(const std::string &name = "");
 
         /**
          * @brief Create a member function of this struct.
@@ -490,9 +494,9 @@ public:
          * @param type Type of returned value
          * @param name Function name
          * @param args Additional parameters
-         * @return Func * 
+         * @return Func::Ptr
          */
-        Func *createMemberFunc(const Ty::Ptr& type, const std::string &name, const Ty::Map &args = Ty::Map());
+        Func::Ptr createMemberFunc(const Ty::Ptr &type, const std::string &name, const Ty::Map &args = Ty::Map());
 
         Type *getTy() const override;
 
@@ -531,9 +535,9 @@ public:
         explicit Array(Ptr eisdrache = nullptr, Ty::Ptr elementTy = nullptr, const std::string &name = "");
         ~Array();
 
-        [[nodiscard]] Local &allocate(const std::string &name = "") const;
-        [[nodiscard]] Local &call(Member callee, const ValueVec &args = {}, const std::string &name = "") const;
-        [[nodiscard]] Local &call(Member callee, Local::Vec args = {}, const std::string &name = "") const;
+        [[nodiscard]] Local::Ptr allocate(const std::string &name = "") const;
+        [[nodiscard]] Local::Ptr call(Member callee, const ValueVec &args = {}, const std::string &name = "") const;
+        [[nodiscard]] Local::Ptr call(Member callee, const Local::Vec &args = {}, const std::string &name = "") const;
 
     private:
         std::string name;
@@ -541,22 +545,22 @@ public:
         Ty::Ptr elementTy;
         Ty::Ptr bufferTy;
         
-        Func *get_buffer = nullptr;
-        Func *set_buffer = nullptr;
-        Func *get_size = nullptr;
-        Func *set_size = nullptr;
-        Func *get_max = nullptr;
-        Func *set_max = nullptr;
-        Func *get_factor = nullptr;
-        Func *set_factor = nullptr;
-        Func *constructor = nullptr;
-        Func *constructor_size = nullptr;
-        Func *constructor_copy = nullptr;
-        Func *destructor = nullptr;
-        Func *resize = nullptr;
-        Func *is_valid_index = nullptr;
-        Func *get_at_index = nullptr;
-        Func *set_at_index = nullptr;
+        Func::Ptr get_buffer = nullptr;
+        Func::Ptr set_buffer = nullptr;
+        Func::Ptr get_size = nullptr;
+        Func::Ptr set_size = nullptr;
+        Func::Ptr get_max = nullptr;
+        Func::Ptr set_max = nullptr;
+        Func::Ptr get_factor = nullptr;
+        Func::Ptr set_factor = nullptr;
+        Func::Ptr constructor = nullptr;
+        Func::Ptr constructor_size = nullptr;
+        Func::Ptr constructor_copy = nullptr;
+        Func::Ptr destructor = nullptr;
+        Func::Ptr resize = nullptr;
+        Func::Ptr is_valid_index = nullptr;
+        Func::Ptr get_at_index = nullptr;
+        Func::Ptr set_at_index = nullptr;
 
         Ptr eisdrache;
     };
@@ -613,7 +617,7 @@ public:
     Constant *getLiteral(const std::string &value, const std::string &name = "") const;
 
     // returns `nullLocal`, an empty local representing null
-    Local &getNull();
+    Local::Ptr getNull();
     
     static ConstantPointerNull *getNullPtr(const Ty::Ptr &ptrTy) ;
 
@@ -627,7 +631,7 @@ public:
      * @param parameters parameters of the function 
      * @return Func & - Eisdrache::Func (wrapped llvm::Function)
      */
-    Func &declareFunction(const Ty::Ptr &type, const std::string &name, const Ty::Vec &parameters);
+    Func::Ptr declareFunction(const Ty::Ptr &type, const std::string &name, const Ty::Vec &parameters);
     /**
      * @brief Declare a llvm::Function.
      * 
@@ -637,7 +641,7 @@ public:
      * @param entry (optional) creates entry llvm::BasicBlock in the function body if true
      * @return Func & - Eisdrache::Func (wrapped llvm::Function)
      */
-    Func &declareFunction(const Ty::Ptr &type, const std::string &name, const Ty::Map &parameters = Ty::Map(), bool entry = false);
+    Func::Ptr declareFunction(const Ty::Ptr &type, const std::string &name, const Ty::Map &parameters = Ty::Map(), bool entry = false);
     
     /**
      * @brief Get the Eisdrache::Func wrapper object
@@ -645,7 +649,7 @@ public:
      * @param function Pointer to llvm::Function
      * @return Func & - Eisdrache::Func (wrapped llvm::Function)
      */
-    Func &getWrap(const Function *function);
+    Func::Ptr getWrap(const Function *function);
 
     /**
      * @brief Verify that a Eisdrache::Func is free of errors.
@@ -654,7 +658,7 @@ public:
      * @return true - Eisdrache::Func is error-free.
      * @return false - Eisdrache::Func contains errors.
      */
-    static bool verifyFunc(const Func &wrap);
+    static bool verifyFunc(const Func::Ptr &wrap);
 
     /**
      * @brief Call a llvm::Function by its wrap.
@@ -662,9 +666,9 @@ public:
      * @param wrap Eisdrache::Func (wrapped llvm::Function) of the callee function
      * @param args (optional) Function call arguments
      * @param name (optional) Name of the returned value
-     * @return Value * - Wrapped llvm::Value returned from call
+     * @return Local::Ptr - Wrapped llvm::Value returned from call
      */
-    static Local &callFunction(const Func &wrap, const ValueVec &args = {}, const std::string &name = "");
+    static Local::Ptr callFunction(const Func::Ptr &wrap, const ValueVec &args = {}, const std::string &name = "");
 
     /**
      * @brief Call a llvm::Function by its wrap.
@@ -672,9 +676,9 @@ public:
      * @param wrap Eisdrache::Func (wrapped llvm::Function) of the callee function
      * @param args (optional) Function call arguments
      * @param name (optional) Name of the returned value
-     * @return Value * - Wrapped llvm::Value returned from call
+     * @return Local::Ptr - Wrapped llvm::Value returned from call
      */
-    static Local &callFunction(const Func &wrap, const Local::Vec &args = {}, const std::string &name = "");
+    static Local::Ptr callFunction(const Func::Ptr &wrap, const Local::Vec &args = {}, const std::string &name = "");
 
     /**
      * @brief Call a llvm::Function by its name.
@@ -682,9 +686,9 @@ public:
      * @param callee Name of the callee function
      * @param args (optional) Function call arguments
      * @param name (optional) Name of the returned value
-     * @return Value * - Wrapped llvm::Value returned from call
+     * @return Local::Ptr - Wrapped llvm::Value returned from call
      */
-    Local &callFunction(const std::string &callee, const ValueVec &args = {}, const std::string &name = "") const;
+    Local::Ptr callFunction(const std::string &callee, const ValueVec &args = {}, const std::string &name = "") const;
 
     /**
      * @brief Call a llvm::Function by its name.
@@ -692,9 +696,9 @@ public:
      * @param callee Name of the callee function
      * @param args (optional) Function call arguments
      * @param name (optional) Name of the returned value
-     * @return Value * - Wrapped llvm::Value returned from call
+     * @return Local::Ptr - Wrapped llvm::Value returned from call
      */
-    Local &callFunction(const std::string &callee, const Local::Vec &args = {}, const std::string &name = "") const;
+    Local::Ptr callFunction(const std::string &callee, const Local::Vec &args = {}, const std::string &name = "") const;
 
     /// LOCALS ///
 
@@ -705,18 +709,18 @@ public:
      * @param name (optional) Name of the AllocaInst *
      * @param future (optional) Future value to be assigned to the local variable
      * @param future_args (optional) Arguments if future value is a function
-     * @return Local & - Wrapped alloca instruction
+     * @return Local::Ptr - Wrapped alloca instruction
      */
-    Local &declareLocal(const Ty::Ptr &type, const std::string &name = "", Value *future = nullptr, const ValueVec &future_args = ValueVec());
+    Local::Ptr declareLocal(const Ty::Ptr &type, const std::string &name = "", Value *future = nullptr, const ValueVec &future_args = ValueVec());
 
     /**
      * @brief Load the value of a local variable.
      * 
      * @param local Wrapped llvm::Value
      * @param name (optional) Name of the loaded value.
-     * @return Local & - Wrapped llvm::Value
+     * @return Local::Ptr - Wrapped llvm::Value
      */
-    static Local &loadLocal(Local &local, const std::string &name = "");
+    static Local::Ptr loadLocal(const Local::Ptr &local, const std::string &name = "");
 
     /**
      * @brief Store a value in a local variable.
@@ -725,7 +729,7 @@ public:
      * @param value Value to store in local
      * @return StoreInst * - Store instruction returned by llvm::IRBuilder
      */
-    StoreInst *storeValue(Local &local, Local &value) const;
+    StoreInst *storeValue(const Local::Ptr &local, const Local::Ptr &value) const;
     /**
      * @brief Store a value in a local variable.
      * 
@@ -733,7 +737,7 @@ public:
      * @param value Value to store in local
      * @return StoreInst * - Store instruction returned by llvm::IRBuilder
      */
-    StoreInst *storeValue(Local &local, Constant *value) const;
+    StoreInst *storeValue(const Local::Ptr &local, Constant *value) const;
 
     /**
      * @brief Create an instruction for the future assignment of a local
@@ -759,7 +763,7 @@ public:
      * 
      * @param name Name of the struct type
      * @param elements Types of the elements of the struct type
-     * @return Struct & - Wrapped llvm::StructType
+     * @return Struct::Ptr & - Wrapped llvm::StructType
      */
     Struct::Ptr &declareStruct(const std::string &name, const Ty::Vec &elements);
 
@@ -769,18 +773,18 @@ public:
      * 
      * @param wrap Wrapped llvm::StructType
      * @param name Name of the returned pointer
-     * @return Local & - Wrapped alloca instruction
+     * @return Local::Ptr - Wrapped alloca instruction
      */
-    Local &allocateStruct(const Struct::Ptr &wrap, const std::string &name = "");
+    Local::Ptr allocateStruct(const Struct::Ptr &wrap, const std::string &name = "");
     /**
      * @brief Allocate the object of the struct type.
      *      Automatically appends to Eisdrache::Func::locals.
      * 
      * @param typeName Name of the struct type.
      * @param name Name of the returned pointer
-     * @return Local & - Wrapped alloca instruction
+     * @return Local::Ptr - Wrapped alloca instruction
      */
-    Local &allocateStruct(const std::string &typeName, const std::string &name = "");
+    Local::Ptr allocateStruct(const std::string &typeName, const std::string &name = "");
 
     /**
      * @brief Get the pointer to the element at an index
@@ -788,9 +792,9 @@ public:
      * @param parent Parent of the element
      * @param index Index of the element
      * @param name Name of the returned value
-     * @return Local & - Wrapped llvm::Value
+     * @return Local::Ptr - Wrapped llvm::Value
      */
-    Local &getElementPtr(Local &parent, size_t index, const std::string &name = "");
+    Local::Ptr getElementPtr(const Local::Ptr &parent, size_t index, const std::string &name = "");
 
     /**
      * @brief Get the value of an element at an index
@@ -798,9 +802,9 @@ public:
      * @param parent Parent of the element
      * @param index Index of the element
      * @param name Name of the returned value
-     * @return Local & - Wrapped llvm::Value 
+     * @return Local::Ptr - Wrapped llvm::Value
      */
-    Local &getElementVal(Local &parent, size_t index, const std::string &name = "");
+    Local::Ptr getElementVal(const Local::Ptr &parent, size_t index, const std::string &name = "");
 
     /// BUILDER ///
 
@@ -818,7 +822,7 @@ public:
      * @param next (optional) Next insertion point
      * @return ReturnInst * - Return Instruction returned from llvm::IRBuilder
      */
-    ReturnInst *createRet(Local &value, BasicBlock *next = nullptr) const;
+    ReturnInst *createRet(const Local::Ptr &value, BasicBlock *next = nullptr) const;
     /**
      * @brief Create a return instruction with a constant.
      * 
@@ -851,9 +855,9 @@ public:
      * @param LHS Left-Hand-Side
      * @param RHS Right-Hand-Side
      * @param name (optional) Name of the result
-     * @return Local & - Result 
+     * @return Local::Ptr - Result
      */
-    Local &binaryOp(Op op, Local &LHS, Local &RHS, std::string name = ""); 
+    Local::Ptr binaryOp(Op op, const Local::Ptr &LHS, const Local::Ptr &RHS, std::string name = "");
 
     /**
      * @brief Bitcast a pointer to a type.
@@ -861,9 +865,9 @@ public:
      * @param ptr The original pointer 
      * @param to The destination type
      * @param name (optional) Name of the returned pointer
-     * @return Local & - The returned pointer from the bitcast
+     * @return Local::Ptr - The returned pointer from the bitcast
      */
-    Local &bitCast(Local &ptr, const Ty::Ptr &to, const std::string &name = "");
+    Local::Ptr bitCast(const Local::Ptr &ptr, const Ty::Ptr &to, const std::string &name = "");
 
     /**
      * @brief Jump to block.
@@ -880,7 +884,7 @@ public:
      * @param else_ (optional) The `else` block
      * @return BranchInst *
      */
-    BranchInst *jump(Local &condition, BasicBlock *then, BasicBlock *else_ = nullptr) const;
+    BranchInst *jump(const Local::Ptr &condition, BasicBlock *then, BasicBlock *else_ = nullptr) const;
 
     /**
      * @brief Type cast a value.
@@ -888,9 +892,9 @@ public:
      * @param local The value
      * @param to The destination type
      * @param name (optional) The name of the cast value
-     * @return Local & 
+     * @return Local::Ptr
      */
-    Local &typeCast(Local &local, const Ty::Ptr &to, const std::string &name = "typecast");
+    Local::Ptr typeCast(const Local::Ptr &local, const Ty::Ptr &to, const std::string &name = "typecast");
 
     /**
      * @brief Get the pointer to an element of an array.
@@ -898,9 +902,9 @@ public:
      * @param array The array
      * @param index The index of the element
      * @param name (optional) The name of the returned pointer
-     * @return Local & 
+     * @return Local::Ptr
      */
-    Local &getArrayElement(Local &array, size_t index, const std::string &name = "");
+    Local::Ptr getArrayElement(const Local::Ptr &array, size_t index, const std::string &name = "");
 
     /**
      * @brief Get the pointer to an element of an array.
@@ -908,20 +912,20 @@ public:
      * @param array The array
      * @param index The index of the element
      * @param name (optional) The name of the returned pointer
-     * @return Local & 
+     * @return Local::Ptr
      */
-    Local &getArrayElement(Local &array, Local &index, const std::string &name = "");
+    Local::Ptr getArrayElement(const Local::Ptr &array, const Local::Ptr &index, const std::string &name = "");
 
     /**
      * @brief Check whether the given pointer is a nullptr and return the result.
      * 
      * @param pointer The pointer 
      * @param name Name of the result
-     * @return Local &,
+     * @return Local::Ptr,
      *          true: pointer == nullptr,
      *          false: pointer != nullptr
      */
-    Local &compareToNull(Local &pointer, const std::string &name = "");
+    Local::Ptr compareToNull(const Local::Ptr &pointer, const std::string &name = "");
 
     /**
      * @brief Create a unary operation.
@@ -929,9 +933,9 @@ public:
      * @param op The unary operation
      * @param expr The expression
      * @param name Name of the result
-     * @return Local & 
+     * @return Local::Ptr
      */
-    Local &unaryOp(Op op, Local &expr, const std::string &name = "");
+    Local::Ptr unaryOp(Op op, const Local::Ptr &expr, const std::string &name = "");
 
     /**
      * @brief Create jump instructions and if/else blocks. Sets IRBuilder to block 'then'.
@@ -969,9 +973,9 @@ public:
     /**
      * @brief Get the current wrapped parent llvm::Function
      * 
-     * @return Func & 
+     * @return Func::Ptr
      */
-    Func &getCurrentParent() const;
+    Func::Ptr getCurrentParent() const;
     
     /**
      * @brief Get the vector of Eisdrache::Tys in this context
@@ -994,16 +998,16 @@ public:
      * @brief Get the pointer to a function by its name.
      * 
      * @param name Name of the function
-     * @return Func * - Pointer to the found function.  
+     * @return Func::Ptr - Pointer to the found function.
      */
-    Func *getFunc(const std::string &name);
+    Func::Ptr getFunc(const std::string &name);
 
     /**
      * @brief Set the current parent
      * 
      * @param func Pointer to the new parent
      */
-    void setParent(Func *func);
+    void setParent(Func::Ptr func);
 
 private:
     Eisdrache(LLVMContext *context, Module *module, IRBuilder<> *builder, const std::string &targetTriple);
@@ -1014,8 +1018,8 @@ private:
     Module *module;
     IRBuilder<> *builder;
 
-    Local *nullLocal; // empty local representing null
-    Func *parent; // current parent function
+    Local::Ptr nullLocal; // empty local representing null
+    Func::Ptr parent; // current parent function
 
     Func::Map functions;
     Struct::Map structs;
