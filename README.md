@@ -8,7 +8,7 @@
 ![LLVM](https://img.shields.io/badge/LLVM-4c1717?logo=llvm&logoColor=white&style=for-the-badge)
 
 
-> [!NOTE] \
+> [!NOTE]
 > This project is a work in progress. \
 > Documentation is incomplete.  \
 > Use at your own risk.
