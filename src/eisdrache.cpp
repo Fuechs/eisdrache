@@ -274,7 +274,7 @@ Eisdrache::Local::Ptr Eisdrache::Local::loadValue(bool force, const std::string 
     if (isAlloca())
         invokeFuture();
 
-    Ty::Ptr loadTy = dynamic_cast<PtrTy *>(type.get())->getPointeeTy();
+    Ty::Ptr loadTy = std::static_pointer_cast<PtrTy>(type)->getPointeeTy();
     LoadInst *load = eisdrache->getBuilder()->CreateLoad(loadTy->getTy(), 
         v_ptr, name.empty() ? v_ptr->getName().str()+"_load" : name);
     return eisdrache->getCurrentParent()->addLocal(std::make_shared<Local>(eisdrache, loadTy, load));
@@ -289,7 +289,7 @@ Eisdrache::Local::Ptr Eisdrache::Local::dereference(const std::string &name) {
     if (isAlloca())
         invokeFuture();
 
-    Ty::Ptr loadTy = dynamic_cast<PtrTy *>(type.get())->getPointeeTy();
+    Ty::Ptr loadTy = std::static_pointer_cast<PtrTy>(type)->getPointeeTy();
     LoadInst *load = eisdrache->getBuilder()->CreateLoad(loadTy->getTy(),
         v_ptr, name.empty() ? v_ptr->getName().str()+"_load" : name);
     auto local = std::make_shared<Local>(eisdrache, loadTy, load);
@@ -441,6 +441,11 @@ Eisdrache::Local::Ptr Eisdrache::Func::operator[](const std::string &symbol) {
     for (auto &param : parameters)
         if (param->getName() == symbol)
             return param;
+
+    auto x = std::find_if(parameters.begin(), parameters.end(),
+        [&symbol] (const Local::Ptr &param) { return param->getName() == symbol; });
+    if (x != parameters.end())
+        return *x;
     
     complain("Eisdrache::Func::operator[]: Symbol not found: %"+symbol+".");
     return locals.begin()->second; // silence warning
@@ -573,18 +578,18 @@ Eisdrache::Array::Array(Ptr eisdrache, Ty::Ptr elementTy, const std::string &nam
         eisdrache->getSizeTy(),     // i64 factor
     });
 
-    Func::Ptr malloc = nullptr;
-    if (!(malloc = eisdrache->getFunc("malloc")))
+    Func::Ptr malloc = eisdrache->getFunc("malloc");
+    if (!malloc)
         malloc = eisdrache->declareFunction(eisdrache->getUnsignedPtrTy(8), "malloc",
             {eisdrache->getSizeTy()});
 
-    Func::Ptr free = nullptr;
-    if (!(free = eisdrache->getFunc("free")))
+    Func::Ptr free = eisdrache->getFunc("free");
+    if (!free)
         free = eisdrache->declareFunction(eisdrache->getVoidTy(), "free",
             {eisdrache->getUnsignedPtrTy(8)});
 
-    Func::Ptr memcpy = nullptr;
-    if (!((memcpy = eisdrache->getFunc("memcpy"))))
+    Func::Ptr memcpy = eisdrache->getFunc("memcpy");
+    if (!memcpy)
         memcpy = eisdrache->declareFunction(eisdrache->getUnsignedPtrTy(8), "memcpy",
             {eisdrache->getUnsignedPtrTy(8), 
                 eisdrache->getUnsignedPtrTy(8), 
