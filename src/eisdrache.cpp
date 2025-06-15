@@ -447,8 +447,7 @@ Eisdrache::Local::Ptr Eisdrache::Func::operator[](const std::string &symbol) {
     if (x != parameters.end())
         return *x;
     
-    complain("Eisdrache::Func::operator[]: Symbol not found: %"+symbol+".");
-    return locals.begin()->second; // silence warning
+    return complain("Eisdrache::Func::operator[]: Symbol not found: %"+symbol+".");
 }
 
 Function *Eisdrache::Func::operator*() const { return func; }
