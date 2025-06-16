@@ -286,7 +286,10 @@ public:
 
         Local(Eisdrache::Ptr eisdrache, Constant *constant);
         explicit Local(Eisdrache::Ptr eisdrache = nullptr, Ty::Ptr type = nullptr, Value *ptr = nullptr, Value *future = nullptr, ValueVec future_args = ValueVec());
-        
+
+        static Ptr create(Eisdrache::Ptr eisdrache = nullptr, Constant *constant = nullptr);
+        static Ptr create(Eisdrache::Ptr eisdrache = nullptr, Ty::Ptr type = nullptr, Value *ptr = nullptr, Value *future = nullptr, ValueVec future_args = ValueVec());
+
         Local &operator=(const Local &copy);
         bool operator==(const Local &comp) const;
         bool operator==(const Value *comp) const;
@@ -310,7 +313,7 @@ public:
          * @brief Load the value stored at the address of the local.
          *
          * Do <i>NOT</i> use this if you intend to implement dereferencing in a compiler.\n
-         * Use Local::dereference() instead.
+         * Use <code>Local::dereference()</code> instead.
          * 
          * @param force Load value even if Local is not an alloca instruction
          * @param name Name of the loaded value
@@ -387,7 +390,7 @@ public:
         Condition(Eisdrache::Ptr eisdrache, Op operation, Local::Ptr lhs, Local::Ptr rhs);
         ~Condition() override;
 
-        Local::Ptr create();
+        Local::Ptr create() const;
     
         [[nodiscard]] Kind kind() const override;
 
@@ -447,6 +450,7 @@ public:
 
         Ty::Ptr getTy();
         std::string getName() const;
+        Local::Ptr getLocal(const std::string &symbol);
 
         [[nodiscard]] Kind kind() const override;
 
@@ -606,6 +610,8 @@ public:
 
     /// VALUES ///
 
+    // TODO: create a wrapper for constants that inherits from Entity
+
     ConstantInt *getBool(bool value) const;
 
     ConstantInt *getInt(size_t bit, uint64_t value) const;
@@ -704,14 +710,27 @@ public:
 
     /**
      * @brief Declare (Allocate) a local variable. Automatically adds llvm::AllocaInst to the parent (Eisdrache::Func)
+     *
+     * Do <i>NOT</i> use this function to declare temporary variables created
+     * by the compiler or other variables that don't require allocations.
+     * Use <code>createLocal</code> instead.
      * 
      * @param type Type to allocate
-     * @param name (optional) Name of the AllocaInst *
+     * @param name (optional) Name of the allocation instruction
      * @param future (optional) Future value to be assigned to the local variable
      * @param future_args (optional) Arguments if future value is a function
-     * @return Local::Ptr - Wrapped alloca instruction
+     * @return Wrapped allocation instruction
      */
     Local::Ptr declareLocal(const Ty::Ptr &type, const std::string &name = "", Value *future = nullptr, const ValueVec &future_args = ValueVec());
+
+    /**
+     * @brief Create a local variable that is <i>not</i> an allocation.
+     *
+     * @param type Type of the variable
+     * @param value (optional) Value the variable holds
+     * @return Wrapped variable
+     */
+    Local::Ptr createLocal(const Ty::Ptr &type, Value *value = nullptr);
 
     /**
      * @brief Load the value of a local variable.
@@ -857,7 +876,7 @@ public:
      * @param name (optional) Name of the result
      * @return Local::Ptr - Result
      */
-    Local::Ptr binaryOp(Op op, const Local::Ptr &LHS, const Local::Ptr &RHS, std::string name = "");
+    Local::Ptr binaryOp(Op op, const Local::Ptr &LHS, const Local::Ptr &RHS, const std::string &name = "");
 
     /**
      * @brief Bitcast a pointer to a type.
@@ -945,7 +964,7 @@ public:
      * @param else_name Name of Block that is jumped to if 'condition' is false
      * @return BasicBlock * - Returns else_ block
      */
-    BasicBlock *ifStatement(Condition condition, const std::string &then_name = "then_block", const std::string &else_name = "else_block") const;
+    BasicBlock *ifStatement(const Condition& condition, const std::string &then_name = "then_block", const std::string &else_name = "else_block") const;
 
     /// GETTER ///
 

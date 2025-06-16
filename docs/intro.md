@@ -54,12 +54,47 @@ public:
 ...
 ```
 
-SOON
+Next we declare a variable for the Eisdrache wrapper. This class contains the context, builder and module.
+
+```c++
+static Eisdrache::Ptr eisdrache;
+```
+
+Pretty much everything happens through this class, like requesting 
+types, values, declaring variables and managing function bodies.
 
 ### 3.2 Expression Code Generation
 
-SOON
+Generating the LLVM code is simplified as far as possible by the Eisdrache wrapper.
 
+```c++
+Eisdrache::Entity::Ptr NumberExprAST::codegen() {
+  return eisdrache->createLocal(eisdrache->getFloatTy(64), eisdrache->getFloat(Val));
+}
+```
+
+This code creates a `Local` with a 64-bit floating point type 
+and assigns it the `Val` stored in the AST. To get the LLVM
+representation of the constant, we have to call `getFloat()` 
+with the value. Note that the `Local` we created here doesn't 
+serve as a normal variable the user (of Kaleidoscope) interacts 
+with but is just a temporary internal variable used in further 
+operations. LLVM will automatically omit this in the final code.
+
+> [!IMPORTANT]
+> The `declareLocal()` function is similar but not correct for this case. 
+> This function allocates memory for a more permanent variable and initializes 
+> it. 
+
+```c++
+Eisdrache::Entity::Ptr VariableExprAST::codegen() {
+  return eisdrache->getCurrentParent()->getLocal(Name);
+}
+```
+
+This code requests the current function we're writing into.
+With this class, we can get all variables the function has 
+access to, by their names.
 
 ### 3.3 Function Code Generation
 

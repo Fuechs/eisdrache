@@ -388,11 +388,11 @@ static std::unique_ptr<PrototypeAST> ParseExtern() {
 static Eisdrache::Ptr eisdrache;
 
 Eisdrache::Entity::Ptr NumberExprAST::codegen() {
-  return std::make_shared<Eisdrache::Local>(eisdrache, eisdrache->getFloat(Val));
+  return eisdrache->createLocal(eisdrache->getFloatTy(64), eisdrache->getFloat(Val));
 }
 
 Eisdrache::Entity::Ptr VariableExprAST::codegen() {
-  return (*eisdrache->getCurrentParent())[Name];
+  return eisdrache->getCurrentParent()->getLocal(Name);
 }
 
 Eisdrache::Entity::Ptr BinaryExprAST::codegen() {
@@ -404,11 +404,10 @@ Eisdrache::Entity::Ptr BinaryExprAST::codegen() {
     case '-': return eisdrache->binaryOp(Eisdrache::SUB, L, R);
     case '*': return eisdrache->binaryOp(Eisdrache::MUL, L, R);
     case '<': {
-      auto condition = Eisdrache::Condition(eisdrache, Eisdrache::LES, L, R);
-      auto result = condition.create();
-      return eisdrache->typeCast(result, eisdrache->getFloatTy(64));
+      auto condition = eisdrache->binaryOp(Eisdrache::LES, L, R);
+      return eisdrache->typeCast(condition, eisdrache->getFloatTy(64));
     }
-    default:
+    default: return nullptr;
   }
 }
 
