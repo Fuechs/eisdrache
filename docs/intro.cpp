@@ -93,7 +93,7 @@ namespace {
 class ExprAST {
 public:
   virtual ~ExprAST() = default;
-  virtual Eisdrache::Entity::Ptr codegen() = 0;
+  virtual Eisdrache::Local::Ptr codegen() = 0;
 };
 
 /// NumberExprAST - Expression class for numeric literals like "1.0".
@@ -102,7 +102,7 @@ class NumberExprAST : public ExprAST {
 
 public:
   NumberExprAST(double Val) : Val(Val) {}
-  Eisdrache::Entity::Ptr codegen() override;
+  Eisdrache::Local::Ptr codegen() override;
 };
 
 /// VariableExprAST - Expression class for referencing a variable, like "a".
@@ -111,7 +111,7 @@ class VariableExprAST : public ExprAST {
 
 public:
   VariableExprAST(const std::string &Name) : Name(Name) {}
-  Eisdrache::Entity::Ptr codegen() override;
+  Eisdrache::Local::Ptr codegen() override;
 };
 
 /// BinaryExprAST - Expression class for a binary operator.
@@ -123,7 +123,7 @@ public:
   BinaryExprAST(char Op, std::unique_ptr<ExprAST> LHS,
                 std::unique_ptr<ExprAST> RHS)
       : Op(Op), LHS(std::move(LHS)), RHS(std::move(RHS)) {}
-  Eisdrache::Entity::Ptr codegen() override;
+  Eisdrache::Local::Ptr codegen() override;
 };
 
 /// CallExprAST - Expression class for function calls.
@@ -135,7 +135,7 @@ public:
   CallExprAST(const std::string &Callee,
               std::vector<std::unique_ptr<ExprAST>> Args)
       : Callee(Callee), Args(std::move(Args)) {}
-  Eisdrache::Entity::Ptr codegen() override;
+  Eisdrache::Local::Ptr codegen() override;
 };
 
 /// PrototypeAST - This class represents the "prototype" for a function,
@@ -387,17 +387,17 @@ static std::unique_ptr<PrototypeAST> ParseExtern() {
 
 static Eisdrache::Ptr eisdrache;
 
-Eisdrache::Entity::Ptr NumberExprAST::codegen() {
-  return eisdrache->createLocal(eisdrache->getFloatTy(64), eisdrache->getFloat(Val));
+Eisdrache::Local::Ptr NumberExprAST::codegen() {
+  return eisdrache->createLocal(eisdrache->getFloatTy(64),  eisdrache->getFloat(Val));
 }
 
-Eisdrache::Entity::Ptr VariableExprAST::codegen() {
+Eisdrache::Local::Ptr VariableExprAST::codegen() {
   return eisdrache->getCurrentParent()->getLocal(Name);
 }
 
-Eisdrache::Entity::Ptr BinaryExprAST::codegen() {
-  auto L = std::static_pointer_cast<Eisdrache::Local>(LHS->codegen());
-  auto R = std::static_pointer_cast<Eisdrache::Local>(RHS->codegen());
+Eisdrache::Local::Ptr BinaryExprAST::codegen() {
+  auto L = LHS->codegen();
+  auto R =RHS->codegen();
 
   switch (Op) {
     case '+': return eisdrache->binaryOp(Eisdrache::ADD, L, R);
@@ -411,6 +411,64 @@ Eisdrache::Entity::Ptr BinaryExprAST::codegen() {
   }
 }
 
+Eisdrache::Local::Ptr CallExprAST::codegen() {
+  auto callee = eisdrache->getFunc(Callee);
+  if (!callee) {
+    std::cerr << "Could not find function '" << Callee << "'.\n";
+    return nullptr;
+  }
+
+  if (callee->getArgs().size() != Args.size()) {
+    std::cerr << "Wrong number of arguments for function '" << Callee << "'.\n";
+    return nullptr;
+  }
+
+  Eisdrache::Local::Vec args;
+  for (auto &arg : Args)
+    args.push_back(arg->codegen());
+
+  return callee->call(args);
+}
+
+Eisdrache::Func::Ptr PrototypeAST::codegen() {
+  // Create a map of argument names and types
+  Eisdrache::Ty::Map args;
+  for (auto &arg : Args)
+    // Each argument is a double
+    args.emplace_back(arg, eisdrache->getFloatTy(64));
+
+  // Function returns a double
+  return eisdrache->declareFunction(eisdrache->getFloatTy(64), Name, args);
+}
+
+Eisdrache::Func::Ptr FunctionAST::codegen() {
+  // Check if the function already exists
+  auto func = eisdrache->getFunc(Proto->getName());
+
+  if (!func)
+    func = Proto->codegen();
+
+  if (!func)
+    return nullptr;
+
+  if (!func->empty()) {
+    std::cerr << "Function '" << Proto->getName() << "' is already defined.\n";
+    return nullptr;
+  }
+
+  eisdrache->setParent(func);
+  eisdrache->createBlock("entry", true);
+
+  if (Eisdrache::Local::Ptr ret = Body->codegen()) {
+    eisdrache->createRet(ret);
+    Eisdrache::verifyFunc(func);
+    return func;
+  }
+
+  eisdrache->eraseFunction(func);
+  return nullptr;
+}
+
 //===----------------------------------------------------------------------===//
 // Top-Level parsing and JIT Driver
 //===----------------------------------------------------------------------===//
@@ -418,8 +476,8 @@ Eisdrache::Entity::Ptr BinaryExprAST::codegen() {
 static void HandleDefinition() {
   if (auto FnAST = ParseDefinition()) {
     if (auto FnIR = FnAST->codegen()) {
-      fprintf(stderr, "Read a function definition:");
-      (**FnIR)->print(errs());
+      fprintf(stderr, "Read a function definition:\n");
+      FnIR->print();
       fprintf(stderr, "\n");
     }
   } else {
@@ -431,8 +489,8 @@ static void HandleDefinition() {
 static void HandleExtern() {
   if (auto FnAST = ParseExtern()) {
     if (auto FnIR = FnAST->codegen()) {
-      fprintf(stderr, "Read extern:");
-      (**FnIR)->print(errs());
+      fprintf(stderr, "Read extern:\n");
+      FnIR->print();
       fprintf(stderr, "\n");
     }
   } else {
@@ -445,12 +503,12 @@ static void HandleTopLevelExpression() {
   // Evaluate a top-level expression into an anonymous function.
   if (auto FnAST = ParseTopLevelExpr()) {
     if (auto FnIR = FnAST->codegen()) {
-      fprintf(stderr, "Read top-level expression:");
-      (**FnIR)->print(errs());
+      fprintf(stderr, "Read top-level expression:\n");
+      FnIR->print();
       fprintf(stderr, "\n");
 
       // Remove the anonymous expression.
-      (**FnIR)->eraseFromParent();
+      eisdrache->eraseFunction(FnIR);
     }
   } else {
     // Skip token for error recovery.

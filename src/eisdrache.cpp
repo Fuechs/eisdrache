@@ -55,7 +55,7 @@ Eisdrache::Ty::Ptr Eisdrache::Ty::create(const Eisdrache::Ptr &eisdrache, const 
     return eisdrache->addTy(that);
 }
 
-Eisdrache::Ty::Ptr Eisdrache::Ty::getPtrTo() { 
+Eisdrache::Ty::Ptr Eisdrache::Ty::getPtrTo() {
     return eisdrache->addTy(std::make_shared<PtrTy>(eisdrache,  shared_from_this())); 
 }
 
@@ -511,7 +511,6 @@ Eisdrache::Local::Ptr Eisdrache::Func::getLocal(const std::string &symbol) {
     return (*this)[symbol];
 }
 
-
 Eisdrache::Entity::Kind Eisdrache::Func::kind() const { return FUNC; }
 
 /// EISDRACHE STRUCT ///
@@ -928,6 +927,13 @@ Eisdrache::Local::Ptr Eisdrache::callFunction(const std::string &callee, const V
 Eisdrache::Local::Ptr Eisdrache::callFunction(const std::string &callee, const Local::Vec &args, const std::string &name) const {
     return functions.at(callee)->call(args, name);
 }
+
+void Eisdrache::eraseFunction(const Func::Ptr &wrap) {
+    functions.erase(wrap->getName());
+    if (parent == wrap)
+        parent = nullptr; // TODO: there should be some parent for global variables
+    (**wrap)->eraseFromParent();
+}
  
 /// LOCALS ///
 
@@ -1246,7 +1252,8 @@ Eisdrache::Func::Ptr Eisdrache::getCurrentParent() const { return parent; }
 Eisdrache::Ty::Vec &Eisdrache::getTypes() { return types; }
 
 Eisdrache::Ty::Ptr Eisdrache::addTy(const Ty::Ptr &ty) {
-    auto x = std::ranges::find(types, ty);
+    auto x = std::ranges::find_if(types.begin(), types.end(),
+        [&ty] (const Ty::Ptr &e) { return ty->isEqual(e); });
     if (x != types.end())
         return *x;
 

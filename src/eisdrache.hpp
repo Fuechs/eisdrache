@@ -448,9 +448,16 @@ public:
         // toggle no exception 
         void setDoesNotThrow() const;
 
+        // returns whether the function body is empty
+        constexpr bool empty() const { return func->empty(); }
+
         Ty::Ptr getTy();
         std::string getName() const;
         Local::Ptr getLocal(const std::string &symbol);
+        constexpr const Local::Vec &getArgs() const { return parameters; }
+
+        // print LLVM IR of function
+        constexpr void print() const { func->print(errs()); }
 
         [[nodiscard]] Kind kind() const override;
 
@@ -705,6 +712,13 @@ public:
      * @return Local::Ptr - Wrapped llvm::Value returned from call
      */
     Local::Ptr callFunction(const std::string &callee, const Local::Vec &args = {}, const std::string &name = "") const;
+
+    /**
+     * @brief Erase the function completely.
+     *
+     * @param wrap Wrapper of the function
+     */
+    void eraseFunction(const Func::Ptr &wrap);
 
     /// LOCALS ///
 
