@@ -19,7 +19,7 @@ This tutorial will continue with the same code.
 > [!IMPORTANT]
 > Remember to add `#include "path/to/eisdrache.hpp"` to the top of your file! \
 > This tutorial also omits `Eisdrache::` in front of Eisdrache classes for simplicity. 
-> Either add a `using` declaration to the top of your file or remember to use e.g. `Eisdrache::Entity` instead of just `Entity`. 
+> Either add a `using` declaration to the top of your file or remember to use e.g. `Eisdrache::Local` instead of just `Local`. 
 
 * [3.1 Code Generation Setup](#31-code-generation-setup)
 * [3.2 Expression Code Generation](#32-expression-code-generation)
@@ -32,7 +32,7 @@ To generate the code, we want to be able to simply call `codegen()` on the gener
 This function will return a pointer to an `Entity`.
 
 > [!NOTE]
-> `Entity::Ptr` is equal to `std::shared_ptr<Entity>` (smart pointer).
+> `Entity::Ptr` is equal to `std::shared_ptr<Entity>` (a smart pointer).
 
 ```c++
 /// ExprAST - Base class for all expression nodes.
@@ -69,22 +69,12 @@ Generating the LLVM code is simplified as far as possible by the Eisdrache wrapp
 
 ```c++
 Eisdrache::Entity::Ptr NumberExprAST::codegen() {
-  return eisdrache->createLocal(eisdrache->getFloatTy(64), eisdrache->getFloat(Val));
+  return eisdrache->getFloat(Val);
 }
 ```
 
-This code creates a `Local` with a 64-bit floating point type 
-and assigns it the `Val` stored in the AST. To get the LLVM
-representation of the constant, we have to call `getFloat()` 
-with the value. Note that the `Local` we created here doesn't 
-serve as a normal variable the user (of Kaleidoscope) interacts 
-with but is just a temporary internal variable used in further 
-operations. LLVM will automatically omit this in the final code.
-
-> [!IMPORTANT]
-> The `declareLocal()` function is similar but not correct for this case. 
-> This function allocates memory for a more permanent variable and initializes 
-> it. 
+This code creates a constant value with a 64-bit 
+floating point type with the `Val` stored in the AST. 
 
 ```c++
 Eisdrache::Entity::Ptr VariableExprAST::codegen() {

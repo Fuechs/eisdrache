@@ -29,6 +29,8 @@
 #include <llvm/ExecutionEngine/ExecutionEngine.h>
 
 
+// TODO: remove useless functions (all should just accept Entity instead of Local, Val, etc)
+
 namespace llvm {
 
 /**
@@ -82,6 +84,7 @@ public:
         enum Kind {
             CONDITION,
             REFERENCE,
+            VALUE,
             LOCAL,
             FUNC,
             ALIAS,
@@ -246,6 +249,32 @@ public:
     };
 
     /**
+     * @brief An immediate value.
+     */
+    class Val : public Entity {
+    public:
+        using Ptr = std::shared_ptr<Val>;
+        using Vec = std::vector<Ptr>;
+
+        explicit Val(Eisdrache::Ptr eisdrache = nullptr, Ty::Ptr type = nullptr, Value *value = nullptr);
+        ~Val() override;
+
+        static Ptr create(Eisdrache::Ptr eisdrache = nullptr, Value *value = nullptr);
+        static Ptr create(Eisdrache::Ptr eisdrache, const Ty::Ptr &type, Value *value = nullptr);
+
+        constexpr Value *operator*() const { return value; }
+
+        constexpr Value *getValuePtr() const { return value; }
+        constexpr const Ty::Ptr &getTy() const { return type; }
+
+        [[nodiscard]] Kind kind() const override;
+
+    private:
+        Ty::Ptr type;
+        Value *value;
+    };
+
+    /**
      * @brief A reference to a symbol (local, function, ...).
      * 
      */
@@ -284,10 +313,15 @@ public:
         using Vec = std::vector<Ptr>;
         using Map = std::map<std::string, Ptr>;
 
+        [[deprecated("Use Eisdrache::Val instead")]]
         Local(Eisdrache::Ptr eisdrache, Constant *constant);
+        explicit Local(Eisdrache::Ptr eisdrache, const Val::Ptr &value, Value *future = nullptr, ValueVec future_args = ValueVec());
         explicit Local(Eisdrache::Ptr eisdrache = nullptr, Ty::Ptr type = nullptr, Value *ptr = nullptr, Value *future = nullptr, ValueVec future_args = ValueVec());
 
+        [[deprecated("Use Eisdrache::Val instead")]]
         static Ptr create(Eisdrache::Ptr eisdrache = nullptr, Constant *constant = nullptr);
+        // FIXME: this may habe to be rewritten somehow to house Vals
+        static Ptr create(Eisdrache::Ptr eisdrache = nullptr, const Val::Ptr &value = nullptr);
         static Ptr create(Eisdrache::Ptr eisdrache = nullptr, Ty::Ptr type = nullptr, Value *ptr = nullptr, Value *future = nullptr, ValueVec future_args = ValueVec());
 
         Local &operator=(const Local &copy);
@@ -386,18 +420,18 @@ public:
     class Condition : public Entity {
     public:
         using Vec = std::vector<Condition>;
-    
-        Condition(Eisdrache::Ptr eisdrache, Op operation, Local::Ptr lhs, Local::Ptr rhs);
+
+        Condition(Eisdrache::Ptr eisdrache, Op operation, Entity::Ptr lhs, Entity::Ptr rhs);
         ~Condition() override;
 
-        Local::Ptr create() const;
+        Val::Ptr create() const;
     
         [[nodiscard]] Kind kind() const override;
 
         CmpInst::Predicate getPredicate() const;
     private:
         Op operation;  
-        Local::Ptr lhs, rhs;
+        Entity::Ptr lhs, rhs;
     };
 
     /**
@@ -432,8 +466,8 @@ public:
         // get argument at index
         Local::Ptr arg(size_t index);
         // call this function
-        Local::Ptr call(const ValueVec &args = {}, const std::string &name = "") const;
-        Local::Ptr call(const Local::Vec &args = {}, const std::string &name = "") const;
+        Val::Ptr call(const Entity::Vec &args = {}, const std::string &name = "") const;
+        Val::Ptr call(const ValueVec &args = {}, const std::string &name = "") const;
         // add a local variable to this function
         // and return reference to copy of local
         Local::Ptr addLocal(const Local::Ptr &local);
@@ -547,8 +581,8 @@ public:
         ~Array();
 
         [[nodiscard]] Local::Ptr allocate(const std::string &name = "") const;
-        [[nodiscard]] Local::Ptr call(Member callee, const ValueVec &args = {}, const std::string &name = "") const;
-        [[nodiscard]] Local::Ptr call(Member callee, const Local::Vec &args = {}, const std::string &name = "") const;
+        [[nodiscard]] Val::Ptr call(Member callee, const ValueVec &args = {}, const std::string &name = "") const;
+        [[nodiscard]] Val::Ptr call(Member callee, const Local::Vec &args = {}, const std::string &name = "") const;
 
     private:
         std::string name;
@@ -617,22 +651,17 @@ public:
 
     /// VALUES ///
 
-    // TODO: create a wrapper for constants that inherits from Entity
+    Val::Ptr getBool(bool value);
 
-    ConstantInt *getBool(bool value) const;
+    Val::Ptr getInt(size_t bit, uint64_t value);
 
-    ConstantInt *getInt(size_t bit, uint64_t value) const;
+    Val::Ptr getFloat(double value);
     
-    Value *getNegative(ConstantInt *value) const;
-    
-    ConstantFP *getFloat(double value) const;
-    
-    Constant *getLiteral(const std::string &value, const std::string &name = "") const;
+    Val::Ptr getLiteral(const std::string &value, const std::string &name = "");
 
-    // returns `nullLocal`, an empty local representing null
-    Local::Ptr getNull();
+    Val::Ptr getNull();
     
-    static ConstantPointerNull *getNullPtr(const Ty::Ptr &ptrTy) ;
+    Val::Ptr getNullPtr(const Ty::Ptr &ptrTy);
 
     /// FUNCTIONS ///
     
@@ -674,44 +703,24 @@ public:
     static bool verifyFunc(const Func::Ptr &wrap);
 
     /**
-     * @brief Call a llvm::Function by its wrap.
-     * 
-     * @param wrap Eisdrache::Func (wrapped llvm::Function) of the callee function
-     * @param args (optional) Function call arguments
-     * @param name (optional) Name of the returned value
-     * @return Local::Ptr - Wrapped llvm::Value returned from call
-     */
-    static Local::Ptr callFunction(const Func::Ptr &wrap, const ValueVec &args = {}, const std::string &name = "");
-
-    /**
-     * @brief Call a llvm::Function by its wrap.
-     * 
-     * @param wrap Eisdrache::Func (wrapped llvm::Function) of the callee function
-     * @param args (optional) Function call arguments
-     * @param name (optional) Name of the returned value
-     * @return Local::Ptr - Wrapped llvm::Value returned from call
-     */
-    static Local::Ptr callFunction(const Func::Ptr &wrap, const Local::Vec &args = {}, const std::string &name = "");
-
-    /**
      * @brief Call a llvm::Function by its name.
      * 
      * @param callee Name of the callee function
      * @param args (optional) Function call arguments
      * @param name (optional) Name of the returned value
-     * @return Local::Ptr - Wrapped llvm::Value returned from call
+     * @return Wrapped llvm::Value returned from call
      */
-    Local::Ptr callFunction(const std::string &callee, const ValueVec &args = {}, const std::string &name = "") const;
+    Val::Ptr callFunction(const std::string &callee, const ValueVec &args = {}, const std::string &name = "") const;
 
     /**
      * @brief Call a llvm::Function by its name.
-     * 
+     *
      * @param callee Name of the callee function
      * @param args (optional) Function call arguments
      * @param name (optional) Name of the returned value
-     * @return Local::Ptr - Wrapped llvm::Value returned from call
+     * @return Wrapped llvm::Value returned from call
      */
-    Local::Ptr callFunction(const std::string &callee, const Local::Vec &args = {}, const std::string &name = "") const;
+    Val::Ptr callFunction(const std::string &callee, const Entity::Vec &args = {}, const std::string &name = "") const;
 
     /**
      * @brief Erase the function completely.
@@ -746,6 +755,8 @@ public:
      */
     Local::Ptr createLocal(const Ty::Ptr &type, Value *value = nullptr);
 
+    Val::Ptr createValue(const Ty::Ptr &type, Value *value = nullptr);
+
     /**
      * @brief Load the value of a local variable.
      * 
@@ -762,7 +773,7 @@ public:
      * @param value Value to store in local
      * @return StoreInst * - Store instruction returned by llvm::IRBuilder
      */
-    StoreInst *storeValue(const Local::Ptr &local, const Local::Ptr &value) const;
+    StoreInst *storeValue(const Entity::Ptr &local, const Entity::Ptr &value) const;
     /**
      * @brief Store a value in a local variable.
      * 
@@ -855,7 +866,7 @@ public:
      * @param next (optional) Next insertion point
      * @return ReturnInst * - Return Instruction returned from llvm::IRBuilder
      */
-    ReturnInst *createRet(const Local::Ptr &value, BasicBlock *next = nullptr) const;
+    ReturnInst *createRet(const Entity::Ptr &value, BasicBlock *next = nullptr) const;
     /**
      * @brief Create a return instruction with a constant.
      * 
@@ -890,7 +901,7 @@ public:
      * @param name (optional) Name of the result
      * @return Local::Ptr - Result
      */
-    Local::Ptr binaryOp(Op op, const Local::Ptr &LHS, const Local::Ptr &RHS, const std::string &name = "");
+    Val::Ptr binaryOp(Op op, const Entity::Ptr &LHS, const Entity::Ptr &RHS, const std::string &name = "");
 
     /**
      * @brief Bitcast a pointer to a type.
@@ -900,7 +911,7 @@ public:
      * @param name (optional) Name of the returned pointer
      * @return Local::Ptr - The returned pointer from the bitcast
      */
-    Local::Ptr bitCast(const Local::Ptr &ptr, const Ty::Ptr &to, const std::string &name = "");
+    Val::Ptr bitCast(const Entity::Ptr &ptr, const Ty::Ptr &to, const std::string &name = "");
 
     /**
      * @brief Jump to block.
@@ -908,7 +919,7 @@ public:
      * @param block 
      * @return BranchInst *
      */
-    BranchInst *jump(BasicBlock *block) const;
+    constexpr BranchInst *jump(BasicBlock *block) const { return builder->CreateBr(block); }
     /**
      * @brief Jump to `then` if condition is true, else jump to `else´.
      * 
@@ -917,17 +928,17 @@ public:
      * @param else_ (optional) The `else` block
      * @return BranchInst *
      */
-    BranchInst *jump(const Local::Ptr &condition, BasicBlock *then, BasicBlock *else_ = nullptr) const;
+    BranchInst *jump(const Val::Ptr &condition, BasicBlock *then, BasicBlock *else_ = nullptr) const;
 
     /**
      * @brief Type cast a value.
      * 
-     * @param local The value
+     * @param value The value
      * @param to The destination type
      * @param name (optional) The name of the cast value
      * @return Local::Ptr
      */
-    Local::Ptr typeCast(const Local::Ptr &local, const Ty::Ptr &to, const std::string &name = "typecast");
+    Val::Ptr typeCast(const Entity::Ptr &value, const Ty::Ptr &to, const std::string &name = "typecast");
 
     /**
      * @brief Get the pointer to an element of an array.
@@ -937,7 +948,7 @@ public:
      * @param name (optional) The name of the returned pointer
      * @return Local::Ptr
      */
-    Local::Ptr getArrayElement(const Local::Ptr &array, size_t index, const std::string &name = "");
+    Local::Ptr getArrayElement(const Entity::Ptr &array, size_t index, const std::string &name = "");
 
     /**
      * @brief Get the pointer to an element of an array.
@@ -947,7 +958,7 @@ public:
      * @param name (optional) The name of the returned pointer
      * @return Local::Ptr
      */
-    Local::Ptr getArrayElement(const Local::Ptr &array, const Local::Ptr &index, const std::string &name = "");
+    Local::Ptr getArrayElement(const Entity::Ptr &array, const Entity::Ptr &index, const std::string &name = "");
 
     /**
      * @brief Check whether the given pointer is a nullptr and return the result.
@@ -958,7 +969,7 @@ public:
      *          true: pointer == nullptr,
      *          false: pointer != nullptr
      */
-    Local::Ptr compareToNull(const Local::Ptr &pointer, const std::string &name = "");
+    Val::Ptr compareToNull(const Entity::Ptr &pointer, const std::string &name = "");
 
     /**
      * @brief Create a unary operation.
@@ -1047,11 +1058,14 @@ private:
 
     static std::nullptr_t complain(const std::string&);
 
+    // get the llvm::Value and type of entity for operations
+    // load: whether a Local should be loaded
+    static std::pair<Value *, Ty::Ptr> process(const Entity::Ptr &entity, bool load = true);
+
     LLVMContext *context;
     Module *module;
     IRBuilder<> *builder;
 
-    Local::Ptr nullLocal; // empty local representing null
     Func::Ptr parent; // current parent function
 
     Func::Map functions;

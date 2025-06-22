@@ -93,7 +93,7 @@ namespace {
 class ExprAST {
 public:
   virtual ~ExprAST() = default;
-  virtual Eisdrache::Local::Ptr codegen() = 0;
+  virtual Eisdrache::Entity::Ptr codegen() = 0;
 };
 
 /// NumberExprAST - Expression class for numeric literals like "1.0".
@@ -102,7 +102,8 @@ class NumberExprAST : public ExprAST {
 
 public:
   NumberExprAST(double Val) : Val(Val) {}
-  Eisdrache::Local::Ptr codegen() override;
+
+  Eisdrache::Entity::Ptr codegen() override;
 };
 
 /// VariableExprAST - Expression class for referencing a variable, like "a".
@@ -111,7 +112,8 @@ class VariableExprAST : public ExprAST {
 
 public:
   VariableExprAST(const std::string &Name) : Name(Name) {}
-  Eisdrache::Local::Ptr codegen() override;
+
+  Eisdrache::Entity::Ptr codegen() override;
 };
 
 /// BinaryExprAST - Expression class for a binary operator.
@@ -123,7 +125,8 @@ public:
   BinaryExprAST(char Op, std::unique_ptr<ExprAST> LHS,
                 std::unique_ptr<ExprAST> RHS)
       : Op(Op), LHS(std::move(LHS)), RHS(std::move(RHS)) {}
-  Eisdrache::Local::Ptr codegen() override;
+
+  Eisdrache::Entity::Ptr codegen() override;
 };
 
 /// CallExprAST - Expression class for function calls.
@@ -135,7 +138,8 @@ public:
   CallExprAST(const std::string &Callee,
               std::vector<std::unique_ptr<ExprAST>> Args)
       : Callee(Callee), Args(std::move(Args)) {}
-  Eisdrache::Local::Ptr codegen() override;
+
+  Eisdrache::Entity::Ptr codegen() override;
 };
 
 /// PrototypeAST - This class represents the "prototype" for a function,
@@ -387,17 +391,17 @@ static std::unique_ptr<PrototypeAST> ParseExtern() {
 
 static Eisdrache::Ptr eisdrache;
 
-Eisdrache::Local::Ptr NumberExprAST::codegen() {
-  return eisdrache->createLocal(eisdrache->getFloatTy(64),  eisdrache->getFloat(Val));
+Eisdrache::Entity::Ptr NumberExprAST::codegen() {
+  return eisdrache->getFloat(Val);
 }
 
-Eisdrache::Local::Ptr VariableExprAST::codegen() {
+Eisdrache::Entity::Ptr VariableExprAST::codegen() {
   return eisdrache->getCurrentParent()->getLocal(Name);
 }
 
-Eisdrache::Local::Ptr BinaryExprAST::codegen() {
+Eisdrache::Entity::Ptr BinaryExprAST::codegen() {
   auto L = LHS->codegen();
-  auto R =RHS->codegen();
+  auto R = RHS->codegen();
 
   switch (Op) {
     case '+': return eisdrache->binaryOp(Eisdrache::ADD, L, R);
@@ -411,7 +415,7 @@ Eisdrache::Local::Ptr BinaryExprAST::codegen() {
   }
 }
 
-Eisdrache::Local::Ptr CallExprAST::codegen() {
+Eisdrache::Entity::Ptr CallExprAST::codegen() {
   auto callee = eisdrache->getFunc(Callee);
   if (!callee) {
     std::cerr << "Could not find function '" << Callee << "'.\n";
@@ -423,7 +427,7 @@ Eisdrache::Local::Ptr CallExprAST::codegen() {
     return nullptr;
   }
 
-  Eisdrache::Local::Vec args;
+  Eisdrache::Entity::Vec args;
   for (auto &arg : Args)
     args.push_back(arg->codegen());
 
@@ -459,7 +463,7 @@ Eisdrache::Func::Ptr FunctionAST::codegen() {
   eisdrache->setParent(func);
   eisdrache->createBlock("entry", true);
 
-  if (Eisdrache::Local::Ptr ret = Body->codegen()) {
+  if (auto ret = Body->codegen()) {
     eisdrache->createRet(ret);
     Eisdrache::verifyFunc(func);
     return func;

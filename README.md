@@ -18,7 +18,7 @@
 - Wrappers for various types, variables, functions and structure types
 - Workaround for intrinsic pointer types
 - Simplified loads, stores, binary operations, type casts and branching
-- Automatic initialization upon load of variables
+- Automatic initialization upon loading of variables
 - Implementation for dynamic arrays
 - and other quality-of-life features
 

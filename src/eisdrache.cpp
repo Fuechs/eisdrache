@@ -176,6 +176,23 @@ bool Eisdrache::FloatTy::isEqual(const Ty::Ptr comp) const {
 
 Eisdrache::FloatTy::Kind Eisdrache::FloatTy::kind() const { return FLOAT; }
 
+/// EISDRACHE VAL ///
+
+Eisdrache::Val::Val(Eisdrache::Ptr eisdrache, Ty::Ptr type, Value *value)
+: Entity(std::move(eisdrache)), type(std::move(type)), value(value) {}
+
+Eisdrache::Val::~Val() = default;
+
+Eisdrache::Val::Ptr Eisdrache::Val::create(Eisdrache::Ptr eisdrache, Value *value) {
+    return std::make_shared<Val>(std::move(eisdrache), nullptr, value);
+}
+
+Eisdrache::Val::Ptr Eisdrache::Val::create(Eisdrache::Ptr eisdrache, const Ty::Ptr &type, Value *value) {
+    return std::make_shared<Val>(std::move(eisdrache), type, value);
+}
+
+Eisdrache::Entity::Kind Eisdrache::Val::kind() const { return VALUE; }
+
 /// EISDRACHE REFERENCE ///
 
 Eisdrache::Reference::Reference(Eisdrache::Ptr eisdrache, std::string symbol)
@@ -211,12 +228,19 @@ Eisdrache::Local::Local(Eisdrache::Ptr eisdrache, Constant *constant)
 : Entity(std::move(eisdrache)), dereferenced(false), v_ptr(constant),
     type(eisdrache->addTy(Ty::create(eisdrache, constant->getType()))), future(nullptr) {}
 
+Eisdrache::Local::Local(Eisdrache::Ptr eisdrache, const Val::Ptr &value, Value *future, ValueVec future_args)
+: Entity(std::move(eisdrache)), dereferenced(false), type(value->getTy()), v_ptr(value->getValuePtr()), future(future), future_args(std::move(future_args)) {}
+
 Eisdrache::Local::Local(Eisdrache::Ptr eisdrache, Ty::Ptr type, Value *ptr, Value *future, ValueVec future_args)
 : Entity(std::move(eisdrache)), dereferenced(false), v_ptr(ptr), type(std::move(type)),
     future(future), future_args(std::move(future_args)) {}
 
 Eisdrache::Local::Ptr Eisdrache::Local::create(Eisdrache::Ptr eisdrache, Constant *constant) {
     return std::make_shared<Local>(std::move(eisdrache), constant);
+}
+
+Eisdrache::Local::Ptr Eisdrache::Local::create(Eisdrache::Ptr eisdrache, const Val::Ptr &value) {
+    return std::make_shared<Local>(std::move(eisdrache), value, nullptr, ValueVec());
 }
 
 Eisdrache::Local::Ptr Eisdrache::Local::create(Eisdrache::Ptr eisdrache, Ty::Ptr type, Value *ptr, Value *future, ValueVec future_args) {
@@ -329,27 +353,30 @@ Eisdrache::Entity::Kind Eisdrache::Local::kind() const { return LOCAL; }
 
 /// EISDRACHE CONDITION ///
 
-Eisdrache::Condition::Condition(Eisdrache::Ptr eisdrache, Op operation, Local::Ptr lhs, Local::Ptr rhs)
-: Entity(std::move(eisdrache)), operation(operation), lhs(std::move(lhs)), rhs(std::move(rhs)) { }
+Eisdrache::Condition::Condition(Eisdrache::Ptr eisdrache, Op operation, Entity::Ptr lhs, Entity::Ptr rhs)
+: Entity(std::move(eisdrache)), operation(operation), lhs(std::move(lhs)), rhs(std::move(rhs)) {}
 
 Eisdrache::Condition::~Condition() = default;
 
-Eisdrache::Local::Ptr Eisdrache::Condition::create() const {
-    Value *cond = eisdrache->getBuilder()->CreateCmp(getPredicate(), 
-        lhs->loadValue()->getValuePtr(), rhs->loadValue()->getValuePtr(), "cmp");
+Eisdrache::Val::Ptr Eisdrache::Condition::create() const {
+    Value *l = process(lhs).first;
+    Value *r = process(rhs).first;
 
-    return eisdrache->createLocal(eisdrache->getBoolTy(), cond);
+    Value *cond = eisdrache->getBuilder()->CreateCmp(getPredicate(), l, r, "cmp");
+
+    return Val::create(eisdrache, eisdrache->getBoolTy(), cond);
 }
 
 Eisdrache::Entity::Kind Eisdrache::Condition::kind() const { return CONDITION; }
 
 CmpInst::Predicate Eisdrache::Condition::getPredicate() const {
-    Local::Ptr lhs_load = lhs->loadValue();
+    Ty::Ptr ty = process(lhs).second;
 
-    if (!lhs_load->getTy()->isValidRHS(rhs->loadValue()->getTy()))
+    // compare with type of rhs
+    if (!ty->isValidRHS(process(rhs).second))
         complain("Eisdrache::Condition::getPredicate(): Incompatible types.");
 
-    if (lhs_load->getTy()->isFloatTy()) {
+    if (ty->isFloatTy()) {
         switch (operation) { // TODO: this assumes that the floats are ordered
             case EQU:   return CmpInst::Predicate::FCMP_OEQ;
             case NEQ:   return CmpInst::Predicate::FCMP_ONE;
@@ -359,8 +386,8 @@ CmpInst::Predicate Eisdrache::Condition::getPredicate() const {
             case GTE:   return CmpInst::Predicate::FCMP_OGE;
             default:    complain("Eisdrache::Condition::getPredicate(): Invalid operation.");
         }
-    } else if (lhs_load->getTy()->isIntTy()) {
-        if (lhs_load->getTy()->isSignedTy())
+    } else if (ty->isIntTy()) {
+        if (ty->isSignedTy())
             switch (operation) {
                 case EQU:   return CmpInst::Predicate::ICMP_EQ;
                 case NEQ:   return CmpInst::Predicate::ICMP_NE;
@@ -463,16 +490,16 @@ Function *Eisdrache::Func::operator*() const { return func; }
 
 Eisdrache::Local::Ptr Eisdrache::Func::arg(size_t index) { return parameters[index]; }
 
-Eisdrache::Local::Ptr Eisdrache::Func::call(const ValueVec &args, const std::string &name) const {
-    Value *ret = eisdrache->getBuilder()->CreateCall(func, args, name); 
-    return eisdrache->createLocal(type, ret);
+Eisdrache::Val::Ptr Eisdrache::Func::call(const Entity::Vec &args, const std::string &name) const {
+    ValueVec raw_args = {};
+    for (auto &arg : args)
+        raw_args.push_back(process(arg).first);
+    return this->call(raw_args, name);
 }
 
-Eisdrache::Local::Ptr Eisdrache::Func::call(const Local::Vec &args, const std::string &name) const {
-    ValueVec raw_args = {};
-    for (auto &local : args)
-        raw_args.push_back(local->getValuePtr());
-    return this->call(raw_args, name);
+Eisdrache::Val::Ptr Eisdrache::Func::call(const ValueVec &args, const std::string &name) const {
+    Value *ret = eisdrache->getBuilder()->CreateCall(func, args, name);
+    return Val::create(eisdrache, type, ret);
 }
  
 Eisdrache::Local::Ptr Eisdrache::Func::addLocal(const Local::Ptr &local) {
@@ -667,10 +694,10 @@ Eisdrache::Array::Array(Ptr eisdrache, Ty::Ptr elementTy, const std::string &nam
     constructor = self->createMemberFunc(eisdrache->getVoidTy(), "constructor");
     (**constructor)->setCallingConv(CallingConv::Fast);
     (**constructor)->setDoesNotThrow();
-    set_buffer->call({constructor->arg(0)->getValuePtr(), getNullPtr(bufferTy)});
-    set_size->call({constructor->arg(0)->getValuePtr(), eisdrache->getInt(64, 0)});
-    set_max->call({constructor->arg(0)->getValuePtr(), eisdrache->getInt(64, 0)});
-    set_factor->call({constructor->arg(0)->getValuePtr(), eisdrache->getInt(64, 16)});
+    set_buffer->call({constructor->arg(0)->getValuePtr(), **eisdrache->getNullPtr(bufferTy)});
+    set_size->call({constructor->arg(0)->getValuePtr(), **eisdrache->getInt(64, 0)});
+    set_max->call({constructor->arg(0)->getValuePtr(), **eisdrache->getInt(64, 0)});
+    set_factor->call({constructor->arg(0)->getValuePtr(), **eisdrache->getInt(64, 16)});
     eisdrache->createRet();
     }
 
@@ -678,11 +705,11 @@ Eisdrache::Array::Array(Ptr eisdrache, Ty::Ptr elementTy, const std::string &nam
     constructor_size = self->createMemberFunc(eisdrache->getVoidTy(), "constructor_size", 
         {{"size", eisdrache->getSizeTy()}});
     Local::Ptr byteSize = Local::create(eisdrache, eisdrache->getInt(64, elementTy->getBit() / 8));
-    Local::Ptr bytes = eisdrache->binaryOp(MUL, constructor_size->arg(1), byteSize, "bytes");
-    set_buffer->call({constructor_size->arg(0), malloc->call({bytes}, "buffer")});
+    Val::Ptr bytes = eisdrache->binaryOp(MUL, constructor_size->arg(1), byteSize, "bytes");
+    set_buffer->call({constructor_size->arg(0)->getValuePtr(), **malloc->call({bytes}, "buffer")});
     set_size->call({constructor_size->arg(0), constructor_size->arg(1)});
-    set_max->call({constructor_size->arg(0)->getValuePtr(), eisdrache->getInt(64, 0)});
-    set_factor->call({constructor_size->arg(0)->getValuePtr(), eisdrache->getInt(64, 16)});
+    set_max->call({constructor_size->arg(0)->getValuePtr(), **eisdrache->getInt(64, 0)});
+    set_factor->call({constructor_size->arg(0)->getValuePtr(), **eisdrache->getInt(64, 16)});
     eisdrache->createRet();
     }
 
@@ -699,7 +726,7 @@ Eisdrache::Array::Array(Ptr eisdrache, Ty::Ptr elementTy, const std::string &nam
     destructor->setDoesNotThrow();
     BasicBlock *free_begin = eisdrache->createBlock("free_begin");
     BasicBlock *free_close = eisdrache->createBlock("free_close");
-    Local::Ptr buffer = get_buffer->call({destructor->arg(0)}, "buffer");
+    Val::Ptr buffer = get_buffer->call({destructor->arg(0)}, "buffer");
     eisdrache->jump(eisdrache->compareToNull(buffer, "cond"), free_close, free_begin);
     eisdrache->setBlock(free_begin);
     eisdrache->bitCast(buffer, eisdrache->getUnsignedPtrTy(8), "buffer_cast");
@@ -717,10 +744,10 @@ Eisdrache::Array::Array(Ptr eisdrache, Ty::Ptr elementTy, const std::string &nam
     BasicBlock *end = eisdrache->createBlock("end");
 
     Local::Ptr byteSize = Local::create(eisdrache, eisdrache->getInt(64, elementTy->getBit() / 8));
-    Local::Ptr bytes = eisdrache->binaryOp(MUL, resize->arg(1), byteSize, "bytes");
-    Local::Ptr new_buffer = malloc->call({bytes}, "new_buffer");
-    Local::Ptr buffer = get_buffer->call({resize->arg(0)}, "buffer");
-    Local::Ptr size = get_size->call({resize->arg(0)}, "size");
+    Val::Ptr bytes = eisdrache->binaryOp(MUL, resize->arg(1), byteSize, "bytes");
+    Val::Ptr new_buffer = malloc->call({bytes}, "new_buffer");
+    Val::Ptr buffer = get_buffer->call({resize->arg(0)}, "buffer");
+    Val::Ptr size = get_size->call({resize->arg(0)}, "size");
     eisdrache->jump(eisdrache->compareToNull(buffer, "cond"), empty, copy);
     
     eisdrache->setBlock(copy);
@@ -729,11 +756,11 @@ Eisdrache::Array::Array(Ptr eisdrache, Ty::Ptr elementTy, const std::string &nam
     eisdrache->jump(end);
 
     eisdrache->setBlock(empty);
-    eisdrache->storeValue(new_buffer, getNullPtr(bufferTy));
+    eisdrache->storeValue(new_buffer, eisdrache->getNullPtr(bufferTy));
     eisdrache->jump(end);
     
     eisdrache->setBlock(end);
-    set_buffer->call({resize->arg(0), new_buffer});
+    set_buffer->call({resize->arg(0)->getValuePtr(), **new_buffer});
     Local::Ptr max_ptr = eisdrache->getElementPtr(resize->arg(0), 3, "max_ptr");
     eisdrache->storeValue(max_ptr, resize->arg(1));
     eisdrache->createRet();
@@ -742,14 +769,15 @@ Eisdrache::Array::Array(Ptr eisdrache, Ty::Ptr elementTy, const std::string &nam
     { // is_valid_index
     is_valid_index = self->createMemberFunc(eisdrache->getBoolTy(), "is_valid_index",
         {{"index", eisdrache->getSizeTy()}});
-    Local::Ptr max = get_max->call({is_valid_index->arg(0)}, "max");
-    eisdrache->createRet(eisdrache->binaryOp(LES, is_valid_index->arg(1), max, "equals"));
+    Val::Ptr max = get_max->call({is_valid_index->arg(0)}, "max");
+    Val::Ptr comparison = eisdrache->binaryOp(LES, is_valid_index->arg(1), max, "equals");
+    eisdrache->createRet(comparison);
     }
 
     { // get_at_index
     get_at_index = self->createMemberFunc(elementTy, "get_at_index", 
         {{"index", eisdrache->getUnsignedTy(32)}});
-    Local::Ptr buffer = get_buffer->call({get_at_index->arg(0)}, "buffer");
+    Val::Ptr buffer = get_buffer->call({get_at_index->arg(0)}, "buffer");
     Local::Ptr element_ptr = eisdrache->getArrayElement(buffer, get_at_index->arg(1), "element_ptr");
     eisdrache->createRet(element_ptr->loadValue(true, "element"));
     }
@@ -757,7 +785,7 @@ Eisdrache::Array::Array(Ptr eisdrache, Ty::Ptr elementTy, const std::string &nam
     { // set_at_index
     set_at_index = self->createMemberFunc(eisdrache->getVoidTy(), "set_at_index",
         {{"index", eisdrache->getUnsignedTy(32)}, {"value", elementTy}});
-    Local::Ptr buffer = get_buffer->call({set_at_index->arg(0)}, "buffer");
+    Val::Ptr buffer = get_buffer->call({set_at_index->arg(0)}, "buffer");
     Value *raw_ptr = eisdrache->getBuilder()->CreateGEP(bufferTy->getTy(), buffer->getValuePtr(),
         {set_at_index->arg(1)->getValuePtr()}, "element_ptr");
     Local::Ptr element_ptr = Local::create(eisdrache, bufferTy, raw_ptr);
@@ -772,7 +800,7 @@ Eisdrache::Local::Ptr Eisdrache::Array::allocate(const std::string &name) const 
     return eisdrache->allocateStruct(self, name);
 }
 
-Eisdrache::Local::Ptr Eisdrache::Array::call(Member callee, const ValueVec &args, const std::string &name) const {
+Eisdrache::Val::Ptr Eisdrache::Array::call(Member callee, const ValueVec &args, const std::string &name) const {
     switch (callee) {
         case GET_BUFFER:        return get_buffer->call(args, name);
         case SET_BUFFER:        return set_buffer->call(args, name);
@@ -790,13 +818,11 @@ Eisdrache::Local::Ptr Eisdrache::Array::call(Member callee, const ValueVec &args
         case IS_VALID_INDEX:    return is_valid_index->call(args, name);
         case GET_AT_INDEX:      return get_at_index->call(args, name);
         case SET_AT_INDEX:      return set_at_index->call(args, name);
-        default:            
-            complain("Eisdrache::Array::call(): Callee not implemented.");
-            return eisdrache->getCurrentParent()->arg(0); // silence warning
+        default:                return complain("Eisdrache::Array::call(): Callee not implemented.");
     }
 }
 
-Eisdrache::Local::Ptr Eisdrache::Array::call(Member callee, const Local::Vec &args, const std::string &name) const {
+Eisdrache::Val::Ptr Eisdrache::Array::call(Member callee, const Local::Vec &args, const std::string &name) const {
     ValueVec raw_args = {};
     for (auto &local : args)
         raw_args.push_back(local->getValuePtr());
@@ -865,21 +891,27 @@ Eisdrache::Ty::Ptr Eisdrache::getFloatPtrPtrTy(size_t bit) { return addTy(std::m
 
 /// VALUES ///
 
-ConstantInt *Eisdrache::getBool(const bool value) const { return builder->getInt1(value); }
-
-ConstantInt *Eisdrache::getInt(const size_t bit, const uint64_t value) const { return builder->getIntN(bit, value); }
-
-Value *Eisdrache::getNegative(ConstantInt *value) const {
-    return builder->CreateSub(builder->getIntN(value->getBitWidth(), 0), value, "eisdrache_negate_");
+Eisdrache::Val::Ptr Eisdrache::getBool(const bool value) {
+    return createValue(getBoolTy(), builder->getInt1(value));
 }
 
-ConstantFP *Eisdrache::getFloat(const double value) const { return ConstantFP::get(*context, APFloat(value)); }
+Eisdrache::Val::Ptr Eisdrache::getInt(const size_t bit, const uint64_t value) {
+    return createValue(getUnsignedTy(bit), builder->getIntN(bit, value));
+}
 
-Constant *Eisdrache::getLiteral(const std::string &value, const std::string &name) const { return builder->CreateGlobalString(value, name); }
+Eisdrache::Val::Ptr Eisdrache::getFloat(const double value) {
+    return createValue(getFloatTy(64), ConstantFP::get(*context, APFloat(value)));
+}
 
-Eisdrache::Local::Ptr Eisdrache::getNull() { return nullLocal ? nullLocal : nullLocal = Local::create(shared_from_this(), nullptr); }
+Eisdrache::Val::Ptr Eisdrache::getLiteral(const std::string &value, const std::string &name) {
+    return Val::create(shared_from_this(), builder->CreateGlobalString(value, name));
+}
 
-ConstantPointerNull *Eisdrache::getNullPtr(const Ty::Ptr &ptrTy) { return ConstantPointerNull::get(dyn_cast<PointerType>(ptrTy->getTy())); }
+Eisdrache::Val::Ptr Eisdrache::getNull() { return Val::create(shared_from_this(), nullptr); }
+
+Eisdrache::Val::Ptr Eisdrache::getNullPtr(const Ty::Ptr &ptrTy) {
+    return createValue(ptrTy, ConstantPointerNull::get(dyn_cast<PointerType>(ptrTy->getTy())));
+}
 
 /// FUNCTIONS ///
 
@@ -912,19 +944,11 @@ bool Eisdrache::verifyFunc(const Func::Ptr &wrap) {
     return x;
 }
 
-Eisdrache::Local::Ptr Eisdrache::callFunction(const Func::Ptr &wrap, const ValueVec &args, const std::string &name) {
-    return wrap->call(args, name);
-}
-
-Eisdrache::Local::Ptr Eisdrache::callFunction(const Func::Ptr &wrap, const Local::Vec &args, const std::string &name) {
-    return wrap->call(args, name);
-}
-
-Eisdrache::Local::Ptr Eisdrache::callFunction(const std::string &callee, const ValueVec &args, const std::string &name) const {
+Eisdrache::Val::Ptr Eisdrache::callFunction(const std::string &callee, const ValueVec &args, const std::string &name) const {
     return functions.at(callee)->call(args, name);
 }
 
-Eisdrache::Local::Ptr Eisdrache::callFunction(const std::string &callee, const Local::Vec &args, const std::string &name) const {
+Eisdrache::Val::Ptr Eisdrache::callFunction(const std::string &callee, const Entity::Vec &args, const std::string &name) const {
     return functions.at(callee)->call(args, name);
 }
 
@@ -953,15 +977,23 @@ Eisdrache::Local::Ptr Eisdrache::createLocal(const Ty::Ptr &type, Value *value) 
     return parent->addLocal(Local::create(shared_from_this(), type, value));
 }
 
+Eisdrache::Val::Ptr Eisdrache::createValue(const Ty::Ptr &type, Value *value) {
+    return Val::create(shared_from_this(), type, value);
+}
+
+
 Eisdrache::Local::Ptr Eisdrache::loadLocal(const Local::Ptr &local, const std::string &name) {
     return local->loadValue(false, name);
 }
 
-StoreInst *Eisdrache::storeValue(const Local::Ptr &local, const Local::Ptr &value) const {
-    if (!local->getTy()->isPtrTy())
-        return complain("Eisdrache::storeValue(): Local is not a pointer (%"+local->getName()+").");
+StoreInst *Eisdrache::storeValue(const Entity::Ptr &local, const Entity::Ptr &value) const {
+    auto [local_raw, local_type] = process(local, false);
+    auto [value_raw, _] = process(value, false);
+
+    if (!local_type->isPtrTy())
+        return complain("Eisdrache::storeValue(): Entity is not a pointer.");
     
-    return builder->CreateStore(value->getValuePtr(), local->getValuePtr());
+    return builder->CreateStore(value_raw, local_raw);
 } 
 
 StoreInst *Eisdrache::storeValue(const Local::Ptr &local, Constant *value) const {
@@ -1007,7 +1039,7 @@ Eisdrache::Local::Ptr Eisdrache::getElementPtr(const Local::Ptr &parent, const s
     
     Struct &ref = *dynamic_cast<Struct *>(ptr->getPointeeTy().get());
     Value *gep = builder->CreateGEP(*ref, parent->getValuePtr(),
-        {getInt(32, 0), getInt(32, index)}, name);
+        {**getInt(32, 0), **getInt(32, index)}, name);
     return this->parent->addLocal(Local::create(shared_from_this(), ref[index]->getPtrTo(), gep));
 }
 
@@ -1025,12 +1057,14 @@ ReturnInst *Eisdrache::createRet(BasicBlock *next) const {
     return inst;
 }
 
-ReturnInst *Eisdrache::createRet(const Local::Ptr &value, BasicBlock *next) const {
-    ReturnInst *inst = builder->CreateRet(value->loadValue()->getValuePtr());
+ReturnInst *Eisdrache::createRet(const Entity::Ptr &value, BasicBlock *next) const {
+    auto [raw, type] = process(value);
+
+    ReturnInst *inst = builder->CreateRet(raw);
     if (next)
         builder->SetInsertPoint(next);
 
-    if (value->getTy() != parent->getTy())
+    if (type != parent->getTy())
         complain("Eisdrache::createRet(): Return value has wrong type.");
 
     return inst;
@@ -1054,51 +1088,47 @@ void Eisdrache::setBlock(BasicBlock *block) const {
     builder->SetInsertPoint(block);
 }
 
-Eisdrache::Local::Ptr Eisdrache::binaryOp(const Op op, const Local::Ptr &LHS, const Local::Ptr &RHS, const std::string &name) {
-    Local::Ptr l = LHS->loadValue(false, LHS->getName()+"_lhs_load");
-    Local::Ptr r = RHS->loadValue(false, RHS->getName()+"_rhs_load");
-    Ty::Ptr ty = l->getTy();
+Eisdrache::Val::Ptr Eisdrache::binaryOp(const Op op, const Entity::Ptr &LHS, const Entity::Ptr &RHS, const std::string &name) {
+    auto [lv, ty] = process(LHS);
+    auto [rv, rty] = process(RHS);
 
-    if (!ty->isValidRHS(r->getTy()))
+    if (!ty->isValidRHS(rty))
         complain("Eisdrache::binaryOp(): LHS and RHS types differ too much.");
-
-    Value *lv = l->getValuePtr();
-    Value *rv = r->getValuePtr();
 
     switch (op) {
         case ADD:
             return ty->isFloatTy()
-                ? createLocal(ty, builder->CreateFAdd(lv, rv, name))
-                : createLocal(ty, builder->CreateAdd(lv, rv, name));
+                ? createValue(ty, builder->CreateFAdd(lv, rv, name))
+                : createValue(ty, builder->CreateAdd(lv, rv, name));
 
         case SUB:
             return ty->isFloatTy()
-                ? createLocal(ty, builder->CreateFSub(lv, rv, name))
-                : createLocal(ty, builder->CreateSub(lv, rv, name));
+                ? createValue(ty, builder->CreateFSub(lv, rv, name))
+                : createValue(ty, builder->CreateSub(lv, rv, name));
 
         case MUL:
             return ty->isFloatTy()
-                ? createLocal(ty, builder->CreateFMul(lv, rv, name))
-                : createLocal(ty, builder->CreateMul(lv, rv, name));
+                ? createValue(ty, builder->CreateFMul(lv, rv, name))
+                : createValue(ty, builder->CreateMul(lv, rv, name));
 
         case DIV:
             // the result of a division is always a float
-            return createLocal(getFloatTy(64), builder->CreateFDiv(lv, rv, name));
+            return createValue(getFloatTy(64), builder->CreateFDiv(lv, rv, name));
 
         case MOD:
             if (ty->isFloatTy())
-                return createLocal(ty, builder->CreateFRem(lv, rv, name));
+                return createValue(ty, builder->CreateFRem(lv, rv, name));
 
             if (ty->isSignedTy())
-                return createLocal(ty, builder->CreateSRem(lv, rv, name));
+                return createValue(ty, builder->CreateSRem(lv, rv, name));
 
-            return createLocal(ty, builder->CreateURem(lv, rv, name));
+            return createValue(ty, builder->CreateURem(lv, rv, name));
 
-        case OR:  return createLocal(ty, builder->CreateOr(lv, rv, name));
-        case XOR: return createLocal(ty, builder->CreateXor(lv, rv, name));
-        case AND: return createLocal(ty, builder->CreateAnd(lv, rv, name));
-        case LSH: return createLocal(ty, builder->CreateShl(lv, rv, name));
-        case RSH: return createLocal(ty, builder->CreateLShr(lv, rv, name));
+        case OR:  return createValue(ty, builder->CreateOr(lv, rv, name));
+        case XOR: return createValue(ty, builder->CreateXor(lv, rv, name));
+        case AND: return createValue(ty, builder->CreateAnd(lv, rv, name));
+        case LSH: return createValue(ty, builder->CreateShl(lv, rv, name));
+        case RSH: return createValue(ty, builder->CreateLShr(lv, rv, name));
 
         case EQU:
         case NEQ:
@@ -1106,66 +1136,60 @@ Eisdrache::Local::Ptr Eisdrache::binaryOp(const Op op, const Local::Ptr &LHS, co
         case LTE:
         case GRE:
         case GTE:
-            return Condition(shared_from_this(), op, l, r).create();
+            return Condition(shared_from_this(), op, LHS, RHS).create();
 
         default:
             return complain("Eisdrache::binaryOp(): Operation (ID "+std::to_string(op)+") not implemented.");
     }
 }
 
-Eisdrache::Local::Ptr Eisdrache::bitCast(const Local::Ptr &ptr, const Ty::Ptr &to, const std::string &name) {
-    Value *cast = builder->CreateBitCast(ptr->getValuePtr(), to->getTy(), name);
-    return createLocal(to, cast);
+Eisdrache::Val::Ptr Eisdrache::bitCast(const Entity::Ptr &ptr, const Ty::Ptr &to, const std::string &name) {
+    Value *value = process(ptr, false).first;
+    Value *cast = builder->CreateBitCast(value, to->getTy(), name);
+    return createValue(to, cast);
 }
 
-BranchInst *Eisdrache::jump(BasicBlock *block) const {
-    return builder->CreateBr(block);
+BranchInst *Eisdrache::jump(const Val::Ptr &condition, BasicBlock *then, BasicBlock *else_) const {
+    return builder->CreateCondBr(condition->getValuePtr(), then, else_);
 }
 
-BranchInst *Eisdrache::jump(const Local::Ptr &condition, BasicBlock *then, BasicBlock *else_) const {
-    return builder->CreateCondBr(condition->loadValue()->getValuePtr(), then, else_);
-}
-
-Eisdrache::Local::Ptr Eisdrache::typeCast(const Local::Ptr &local, const Ty::Ptr &to, const std::string &name) {
-    if (local->getTy()->isEqual(to))
-        return local->loadValue();
-
-    Local::Ptr load = local->loadValue();
-    Value *v = load->getValuePtr();
-    Ty::Ptr from = load->getTy();
+Eisdrache::Val::Ptr Eisdrache::typeCast(const Entity::Ptr &value, const Ty::Ptr &to, const std::string &name) {
+    auto [v, from] = process(value);
+    if (from->isEqual(to)) // value is already that type -> no cast necessary
+        return createValue(to, v);
 
     // 'from' is a float
     if (from->isFloatTy()) {
         if (to->isFloatTy())                                                        // FLOAT -> FLOAT
             return from->getBit() < to->getBit()
-                ? createLocal(to, builder->CreateFPExt(v, to->getTy(), name))
-                : createLocal(to, builder->CreateFPTrunc(v, to->getTy(), name));
+                ? createValue(to, builder->CreateFPExt(v, to->getTy(), name))
+                : createValue(to, builder->CreateFPTrunc(v, to->getTy(), name));
 
         if (to->isSignedTy())                                                       // FLOAT -> SIGNED
-            return createLocal(to, builder->CreateFPToSI(v, to->getTy(), name));
+            return createValue(to, builder->CreateFPToSI(v, to->getTy(), name));
 
         if (to->isPtrTy())                                                          // FLOAT -> POINTER
             return complain("Eisdrache::typeCast(): Invalid type cast (Float -> Pointer).");
                                                                                     // FLOAT -> UNSIGNED
-        return createLocal(to, builder->CreateFPToUI(v, to->getTy(), name));
+        return createValue(to, builder->CreateFPToUI(v, to->getTy(), name));
     }
 
     // 'from' is a signer integer
     if (from->isSignedTy()) {
         if (to->isFloatTy())                                                        // SIGNED -> FLOAT
-            return createLocal(to, builder->CreateSIToFP(v, to->getTy(), name));
+            return createValue(to, builder->CreateSIToFP(v, to->getTy(), name));
 
         if (to->isPtrTy())                                                          // SIGNED -> POINTER
-            return createLocal(to, builder->CreateIntToPtr(v, to->getTy(), name));
+            return createValue(to, builder->CreateIntToPtr(v, to->getTy(), name));
 
         if (to->isSignedTy())                                                       // SIGNED -> SIGNED
             return from->getBit() < to->getBit()
-                ? createLocal(to, builder->CreateSExt(v, to->getTy(), name))
-                : createLocal(to, builder->CreateTrunc(v, to->getTy(), name));
+                ? createValue(to, builder->CreateSExt(v, to->getTy(), name))
+                : createValue(to, builder->CreateTrunc(v, to->getTy(), name));
 
         return from->getBit() < to->getBit()                                        // SIGNED -> UNSIGNED
-            ? createLocal(to, builder->CreateZExt(v, to->getTy(), name))
-            : createLocal(to, builder->CreateTrunc(v, to->getTy(), name));
+            ? createValue(to, builder->CreateZExt(v, to->getTy(), name))
+            : createValue(to, builder->CreateTrunc(v, to->getTy(), name));
     }
 
     // 'from' is a pointer
@@ -1174,43 +1198,51 @@ Eisdrache::Local::Ptr Eisdrache::typeCast(const Local::Ptr &local, const Ty::Ptr
             return complain("Eisdrache::typeCast(): Invalid type cast (Pointer -> Float).");
 
         if (to->isPtrTy())                                                          // POINTER -> POINTER
-            return bitCast(local, to, name);
+            return bitCast(value, to, name);
                                                                                     // POINTER -> INTEGER
-        return createLocal(to, builder->CreatePtrToInt(v, to->getTy(), name));
+        return createValue(to, builder->CreatePtrToInt(v, to->getTy(), name));
     }
 
     // 'from' is an unsigned integer
 
     if (to->isFloatTy())                                                            // UNSIGNED -> FLOAT
-        return createLocal(to, builder->CreateUIToFP(v, to->getTy(), name));
+        return createValue(to, builder->CreateUIToFP(v, to->getTy(), name));
 
     if (to->isPtrTy())                                                              // UNSIGNED -> POINTER
-        return createLocal(to, builder->CreateIntToPtr(v, to->getTy(), name));
+        return createValue(to, builder->CreateIntToPtr(v, to->getTy(), name));
                                                                                     // UNSIGNED -> INTEGER
     return from->getBit() < to->getBit()
-        ? createLocal(to, builder->CreateZExt(v, to->getTy(), name))
-        : createLocal(to, builder->CreateTrunc(v, to->getTy(), name));
+        ? createValue(to, builder->CreateZExt(v, to->getTy(), name))
+        : createValue(to, builder->CreateTrunc(v, to->getTy(), name));
 
 }
 
-Eisdrache::Local::Ptr Eisdrache::getArrayElement(const Local::Ptr &array, const size_t index, const std::string &name) {
-    Value *ptr = builder->CreateGEP(array->getTy()->getTy(), array->getValuePtr(),
-        {getInt(32, index)}, name);
-    return createLocal(array->getTy(), ptr);
+Eisdrache::Local::Ptr Eisdrache::getArrayElement(const Entity::Ptr &array, size_t index, const std::string &name) {
+    auto [raw, ty] = process(array, false);
+    Value *ptr = builder->CreateGEP(ty->getTy(), raw,{**getInt(32, index)}, name);
+    return createLocal(ty, ptr);
 }
 
-Eisdrache::Local::Ptr Eisdrache::getArrayElement(const Local::Ptr &array, const Local::Ptr &index, const std::string &name) {
-    Value *ptr = builder->CreateGEP(array->getTy()->getTy(), array->getValuePtr(), {index->getValuePtr()}, name);
-    return createLocal(array->getTy(), ptr);
+Eisdrache::Local::Ptr Eisdrache::getArrayElement(const Entity::Ptr &array, const Entity::Ptr &index, const std::string &name) {
+    auto [raw, ty] = process(array, false);
+    Value *index_value = process(index, false).first;
+
+    Value *ptr = builder->CreateGEP(ty->getTy(), raw, {index_value}, name);
+    return createLocal(ty, ptr);
 }
 
-Eisdrache::Local::Ptr Eisdrache::compareToNull(const Local::Ptr &pointer, const std::string &name) {
-    if (!pointer->getTy()->isPtrTy())
-        complain("Eisdrache::compareToNull(): Local is not a pointer.");
-    Value *cond = builder->CreateICmpEQ(pointer->getValuePtr(), getNullPtr(pointer->getTy()), name);
-    return createLocal(getBoolTy(), cond);
+Eisdrache::Val::Ptr Eisdrache::compareToNull(const Entity::Ptr &pointer, const std::string &name) {
+    auto [ptr, ty] = process(pointer, false);
+
+    if (!ty->isPtrTy())
+        complain("Eisdrache::compareToNull(): Entity is not a pointer.");
+
+    Value *cond = builder->CreateICmpEQ(ptr, **getNullPtr(ty), name);
+    return createValue(getBoolTy(), cond);
 }
 
+
+// TODO: refactor this for Entity
 Eisdrache::Local::Ptr Eisdrache::unaryOp(Op op, const Local::Ptr &expr, const std::string &name) {
     Local::Ptr load = expr->loadValue();
     Ty::Ptr loadTy = load->getTy();
@@ -1273,7 +1305,6 @@ Eisdrache::Eisdrache(LLVMContext *context, Module *module, IRBuilder<> *builder,
     this->context = context;
     this->module = module;
     this->builder = builder;
-    nullLocal = nullptr;
     parent = nullptr;
     functions = Func::Map();
     structs = Struct::Map();
@@ -1302,6 +1333,22 @@ std::nullptr_t Eisdrache::complain(const std::string &message) {
     std::cerr << "\033[31mError\033[0m: " << message << "\n"; 
     exit(1);
     return nullptr; // for warnings
-} 
+}
+
+std::pair<Value *, Eisdrache::Ty::Ptr> Eisdrache::process(const Entity::Ptr &entity, bool load) {
+    switch (entity->kind()) {
+        case Entity::VALUE: {
+            auto convert = std::static_pointer_cast<Val>(entity);
+            return { convert->getValuePtr(), convert->getTy() };
+        }
+        case Entity::LOCAL: {
+            auto convert = load ? std::static_pointer_cast<Local>(entity)->loadValue() : std::static_pointer_cast<Local>(entity);
+            return { convert->getValuePtr(), convert->getTy() };
+        }
+        default:
+            complain("Eisdrache::process(): Entity is not a value or local.");
+            return { nullptr, nullptr };
+    }
+}
 
 } // namespace llvm
