@@ -1,10 +1,10 @@
 <!-- color: #575fcb  -->
 
-![Eisdrache](assets/eisdrache-title.png)[^1]
+![Wyvern](assets/wyvern-banner.jpg)[^1]
 
 # 
 
-![GitHub Tag](https://img.shields.io/github/v/tag/Fuechs/eisdrache?style=for-the-badge&label=&color=575fcb)
+![GitHub Tag](https://img.shields.io/github/v/tag/Fuechs/wyvern?style=for-the-badge&label=&color=575fcb)
 ![LLVM](https://img.shields.io/badge/LLVM-4c1717?logo=llvm&logoColor=white&style=for-the-badge)
 
 

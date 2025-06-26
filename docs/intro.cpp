@@ -1,4 +1,4 @@
-#include "../src/eisdrache.hpp"
+#include "../src/wyvern.hpp"
 
 #include <cctype>
 #include <cstdio>
@@ -10,6 +10,7 @@
 #include <vector>
 
 using namespace llvm;
+using namespace wyvern;
 
 //===----------------------------------------------------------------------===//
 // Lexer
@@ -93,7 +94,7 @@ namespace {
 class ExprAST {
 public:
   virtual ~ExprAST() = default;
-  virtual Eisdrache::Entity::Ptr codegen() = 0;
+  virtual Entity::Ptr codegen() = 0;
 };
 
 /// NumberExprAST - Expression class for numeric literals like "1.0".
@@ -103,7 +104,7 @@ class NumberExprAST : public ExprAST {
 public:
   NumberExprAST(double Val) : Val(Val) {}
 
-  Eisdrache::Entity::Ptr codegen() override;
+  Entity::Ptr codegen() override;
 };
 
 /// VariableExprAST - Expression class for referencing a variable, like "a".
@@ -113,7 +114,7 @@ class VariableExprAST : public ExprAST {
 public:
   VariableExprAST(const std::string &Name) : Name(Name) {}
 
-  Eisdrache::Entity::Ptr codegen() override;
+  Entity::Ptr codegen() override;
 };
 
 /// BinaryExprAST - Expression class for a binary operator.
@@ -126,7 +127,7 @@ public:
                 std::unique_ptr<ExprAST> RHS)
       : Op(Op), LHS(std::move(LHS)), RHS(std::move(RHS)) {}
 
-  Eisdrache::Entity::Ptr codegen() override;
+  Entity::Ptr codegen() override;
 };
 
 /// CallExprAST - Expression class for function calls.
@@ -139,7 +140,7 @@ public:
               std::vector<std::unique_ptr<ExprAST>> Args)
       : Callee(Callee), Args(std::move(Args)) {}
 
-  Eisdrache::Entity::Ptr codegen() override;
+  Entity::Ptr codegen() override;
 };
 
 /// PrototypeAST - This class represents the "prototype" for a function,
@@ -155,7 +156,7 @@ public:
 
   const std::string &getName() const { return Name; }
 
-  Eisdrache::Func::Ptr codegen();
+  Func::Ptr codegen();
 };
 
 /// FunctionAST - This class represents a function definition itself.
@@ -168,7 +169,7 @@ public:
               std::unique_ptr<ExprAST> Body)
       : Proto(std::move(Proto)), Body(std::move(Body)) {}
 
-  Eisdrache::Func::Ptr codegen();
+  Func::Ptr codegen();
 };
 
 } // end anonymous namespace
@@ -389,34 +390,34 @@ static std::unique_ptr<PrototypeAST> ParseExtern() {
 // Code Generation
 //===----------------------------------------------------------------------===//
 
-static Eisdrache::Ptr eisdrache;
+static Wrapper::Ptr wrapper;
 
-Eisdrache::Entity::Ptr NumberExprAST::codegen() {
-  return eisdrache->getFloat(Val);
+Entity::Ptr NumberExprAST::codegen() {
+  return wrapper->getFloat(Val);
 }
 
-Eisdrache::Entity::Ptr VariableExprAST::codegen() {
-  return eisdrache->getCurrentParent()->getLocal(Name);
+Entity::Ptr VariableExprAST::codegen() {
+  return wrapper->getCurrentParent()->getLocal(Name);
 }
 
-Eisdrache::Entity::Ptr BinaryExprAST::codegen() {
+Entity::Ptr BinaryExprAST::codegen() {
   auto L = LHS->codegen();
   auto R = RHS->codegen();
 
   switch (Op) {
-    case '+': return eisdrache->binaryOp(Eisdrache::ADD, L, R);
-    case '-': return eisdrache->binaryOp(Eisdrache::SUB, L, R);
-    case '*': return eisdrache->binaryOp(Eisdrache::MUL, L, R);
+    case '+': return wrapper->binaryOp(ADD, L, R);
+    case '-': return wrapper->binaryOp(SUB, L, R);
+    case '*': return wrapper->binaryOp(MUL, L, R);
     case '<': {
-      auto condition = eisdrache->binaryOp(Eisdrache::LES, L, R);
-      return eisdrache->typeCast(condition, eisdrache->getFloatTy(64));
+      auto condition = wrapper->binaryOp(LES, L, R);
+      return wrapper->typeCast(condition, wrapper->getFloatTy(64));
     }
     default: return nullptr;
   }
 }
 
-Eisdrache::Entity::Ptr CallExprAST::codegen() {
-  auto callee = eisdrache->getFunc(Callee);
+Entity::Ptr CallExprAST::codegen() {
+  auto callee = wrapper->getFunc(Callee);
   if (!callee) {
     std::cerr << "Could not find function '" << Callee << "'.\n";
     return nullptr;
@@ -427,27 +428,27 @@ Eisdrache::Entity::Ptr CallExprAST::codegen() {
     return nullptr;
   }
 
-  Eisdrache::Entity::Vec args;
+  Entity::Vec args;
   for (auto &arg : Args)
     args.push_back(arg->codegen());
 
   return callee->call(args);
 }
 
-Eisdrache::Func::Ptr PrototypeAST::codegen() {
+Func::Ptr PrototypeAST::codegen() {
   // Create a map of argument names and types
-  Eisdrache::Ty::Map args;
+  Ty::Map args;
   for (auto &arg : Args)
     // Each argument is a double
-    args.emplace_back(arg, eisdrache->getFloatTy(64));
+    args.emplace_back(arg, wrapper->getFloatTy(64));
 
   // Function returns a double
-  return eisdrache->declareFunction(eisdrache->getFloatTy(64), Name, args);
+  return wrapper->declareFunction(wrapper->getFloatTy(64), Name, args);
 }
 
-Eisdrache::Func::Ptr FunctionAST::codegen() {
+Func::Ptr FunctionAST::codegen() {
   // Check if the function already exists
-  auto func = eisdrache->getFunc(Proto->getName());
+  auto func = wrapper->getFunc(Proto->getName());
 
   if (!func)
     func = Proto->codegen();
@@ -460,16 +461,16 @@ Eisdrache::Func::Ptr FunctionAST::codegen() {
     return nullptr;
   }
 
-  eisdrache->setParent(func);
-  eisdrache->createBlock("entry", true);
+  wrapper->setParent(func);
+  wrapper->createBlock("entry", true);
 
   if (auto ret = Body->codegen()) {
-    eisdrache->createRet(ret);
-    Eisdrache::verifyFunc(func);
+    wrapper->createRet(ret);
+    Wrapper::verifyFunc(func);
     return func;
   }
 
-  eisdrache->eraseFunction(func);
+  wrapper->eraseFunction(func);
   return nullptr;
 }
 
@@ -512,7 +513,7 @@ static void HandleTopLevelExpression() {
       fprintf(stderr, "\n");
 
       // Remove the anonymous expression.
-      eisdrache->eraseFunction(FnIR);
+      wrapper->eraseFunction(FnIR);
     }
   } else {
     // Skip token for error recovery.
@@ -559,15 +560,15 @@ int main() {
   fprintf(stderr, "ready> ");
   getNextToken();
 
-  // Initialize the Eisdrache wrapper.
-  Eisdrache::initialize();
-  eisdrache = Eisdrache::create("my cool jit");
+  // Initialize the Wrapper wrapper.
+  Wrapper::initialize();
+  wrapper = Wrapper::create("my cool jit");
 
   // Run the main "interpreter loop" now.
   MainLoop();
 
   // Print out all the generated code.
-  eisdrache->dump();
+  wrapper->dump();
 
   return 0;
 }
