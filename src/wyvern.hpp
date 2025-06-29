@@ -1,7 +1,7 @@
 /**
  * @file wyvern.hpp
  * @brief Wyvern LLVM API Wrapper header
- * @version 0.4
+ * @version 0.1
  * 
  * @copyright Copyright (c) 2023-2025, Ari.
  * 
@@ -259,22 +259,26 @@ public:
     using Ptr = std::shared_ptr<Val>;
     using Vec = std::vector<Ptr>;
 
-    explicit Val(std::shared_ptr<Wrapper> wrapper = nullptr, Ty::Ptr type = nullptr, llvm::Value *value = nullptr);
+    explicit Val(std::shared_ptr<Wrapper> wrapper = nullptr, Ty::Ptr type = nullptr, llvm::Value *value = nullptr, bool immediate = true);
     ~Val() override;
 
     static Ptr create(std::shared_ptr<Wrapper> wrapper = nullptr, llvm::Value *value = nullptr);
-    static Ptr create(std::shared_ptr<Wrapper> wrapper, const Ty::Ptr &type, llvm::Value *value = nullptr);
+    static Ptr create(std::shared_ptr<Wrapper> wrapper, const Ty::Ptr &type, llvm::Value *value = nullptr, bool immediate = true);
 
     constexpr llvm::Value *operator*() const { return value; }
 
-    constexpr llvm::Value *getValuePtr() const { return value; }
+    constexpr bool isImmediate() const { return immediate; }
     constexpr const Ty::Ptr &getTy() const { return type; }
+    constexpr llvm::Value *getValuePtr() const { return value; }
 
-    Val::Ptr dereference(const std::string &name) const;
+    Val::Ptr dereference(const std::string &name = "") const;
 
     constexpr Kind kind() const override { return VALUE; }
 
 private:
+    /// Whether the value should be automatically dereferenced in operation
+    /// (see <code>Local::dereference()</code> for a proper explanation)
+    bool immediate;
     Ty::Ptr type;
     llvm::Value *value;
 };
@@ -314,11 +318,11 @@ public:
     using Vec = std::vector<Ptr>;
     using Map = std::map<std::string, Ptr>;
 
-    explicit Local(std::shared_ptr<Wrapper> wrapper = nullptr, Ty::Ptr type = nullptr, llvm::AllocaInst *ptr = nullptr, Val::Ptr initializer = nullptr);
+    explicit Local(std::shared_ptr<Wrapper> wrapper = nullptr, Ty::Ptr type = nullptr, llvm::AllocaInst *ptr = nullptr, Entity::Ptr initializer = nullptr);
     explicit Local(std::shared_ptr<Wrapper> wrapper, Ty::Ptr type, llvm::AllocaInst *ptr, std::shared_ptr<Func> initializer, Entity::Vec args);
     ~Local() override;
 
-    static Ptr create(std::shared_ptr<Wrapper> wrapper = nullptr, Ty::Ptr type = nullptr, llvm::AllocaInst *ptr = nullptr, Val::Ptr initializer = nullptr);
+    static Ptr create(std::shared_ptr<Wrapper> wrapper = nullptr, Ty::Ptr type = nullptr, llvm::AllocaInst *ptr = nullptr, Entity::Ptr initializer = nullptr);
     static Ptr create(std::shared_ptr<Wrapper> wrapper, Ty::Ptr type, llvm::AllocaInst *ptr, std::shared_ptr<Func> initializer, Entity::Vec args);
 
     Local &operator=(const Local &copy);
@@ -327,7 +331,7 @@ public:
     bool operator==(const llvm::AllocaInst *comp) const;
     llvm::AllocaInst *operator*();
 
-    void setInitializer(Val::Ptr value);
+    void setInitializer(Entity::Ptr value);
     void setInitializer(std::shared_ptr<Func> function, Entity::Vec args);
     void setTy(Ty::Ptr ty);
 
@@ -339,10 +343,38 @@ public:
      * @brief Dereference the stored value of the local. 
      * (Allocations are always created as pointers.)
      *
-     * @param name Name of the dereferenced value
+     * If `isImmediate` is set to false, the dereferenced value will still be technically
+     * treated as an allocation instruction, and thus is automatically dereferenced again
+     * when used in an operation.
+     *
+     * This is necessary if one doesn't want to handle certain cases manually
+     * when generating code involving pointers; The compiler otherwise would
+     * have to differentiate between dereferences and e.g., only dereference
+     * once for assignments, as the store instruction still requires a pointer,
+     * while other instructions require the immediate value stored at the pointer,
+     * which thus would have to be dereferenced twice.
+     * <code>
+     * int *x;
+     * *x = *x + 1;
+     * </code>
+     *
+     * The C++ code above looks roughly like this in LLVM IR:
+     * (without intrinsic types and initialization for readability)
+     * <code>
+     * %x = alloca i32**                        ; declaration; note that it declares i32**, while the original C++ code declared i32* (int*)
+     * %x_load = load i32*, i32** %x            ; first load
+     * %x_load_load = load i32, i32* %x_load    ; second load; the actual value stored at the address x
+     * %add = add i32 1, i32 %x_load_load       ; addition
+     * store i32 %add, i32* %x_load             ; store; the result is assigned to x
+     *                 ^^^^^^^^^^^^ the store instruction requires the pointer to the value stored at x,
+     *                              while the addition required the actual value
+     * </code>
+     *
+     * @param isImmediate (optional) Whether the result should be automatically dereferenced (again) in operations (true -> NO)
+     * @param name (optional) Name of the dereferenced value
      * @return The dereferenced local
      */
-    Val::Ptr dereference(const std::string &name = "");
+    Val::Ptr dereference(bool isImmediate = true, const std::string &name = "");
 
     /**
      * @brief This function should be called automatically when trying to access the value of the Local.
@@ -355,7 +387,7 @@ public:
 
 private:
     llvm::AllocaInst *ptr; // pointer to the allocation instruction (value can be accessed through this)
-    Ty::Ptr type; // note that this is the type of the value, not the ptr
+    Ty::Ptr type; // !!! this is the type of the value, not the ptr !!!
 
     Entity::Ptr initializer;
     Entity::Vec args; // arguments if initializer is a function
@@ -712,7 +744,7 @@ public:
      * @param initializer (optional) Value to be assigned if the variable is accessed
      * @return Wrapped allocation instruction
      */
-    Local::Ptr declareLocal(const Ty::Ptr &type, const std::string &name = "", const Val::Ptr &initializer = nullptr);
+    Local::Ptr declareLocal(const Ty::Ptr &type, const std::string &name = "", const Entity::Ptr &initializer = nullptr);
 
     /**
      * @brief Create a value.

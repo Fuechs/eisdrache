@@ -1,7 +1,7 @@
 /**
  * @file wyvern.cpp
  * @brief Wyvern LLVM API Wrapper implementation
- * @version 0.4
+ * @version 0.1
  * 
  * @copyright Copyright (c) 2023-2025, Ari.
  * 
@@ -159,8 +159,8 @@ bool FloatTy::isEqual(const Ty::Ptr comp) const {
 
 /// VAL ///
 
-Val::Val(Wrapper::Ptr wrapper, Ty::Ptr type, Value *value)
-: Entity(std::move(wrapper)), type(std::move(type)), value(value) {}
+Val::Val(Wrapper::Ptr wrapper, Ty::Ptr type, Value *value,bool immediate)
+: Entity(std::move(wrapper)), immediate(immediate), type(std::move(type)), value(value) {}
 
 Val::~Val() = default;
 
@@ -168,8 +168,8 @@ Val::Ptr Val::create(Wrapper::Ptr wrapper, Value *value) {
     return std::make_shared<Val>(std::move(wrapper), nullptr, value);
 }
 
-Val::Ptr Val::create(Wrapper::Ptr wrapper, const Ty::Ptr &type, Value *value) {
-    return std::make_shared<Val>(std::move(wrapper), type, value);
+Val::Ptr Val::create(Wrapper::Ptr wrapper, const Ty::Ptr &type, Value *value, bool immediate) {
+    return std::make_shared<Val>(std::move(wrapper), type, value, immediate);
 }
 
 Val::Ptr Val::dereference(const std::string &name) const {
@@ -208,7 +208,7 @@ Entity::Ptr Reference::getEntity() const {
 
 /// LOCAL ///
 
-Local::Local(Wrapper::Ptr wrapper, Ty::Ptr type, AllocaInst *ptr, Val::Ptr initializer) 
+Local::Local(Wrapper::Ptr wrapper, Ty::Ptr type, AllocaInst *ptr, Entity::Ptr initializer)
 : Entity(std::move(wrapper)), ptr(ptr), type(std::move(type)), initializer(std::move(initializer)) {}
 
 Local::Local(Wrapper::Ptr wrapper, Ty::Ptr type, AllocaInst *ptr, std::shared_ptr<Func> initializer, Entity::Vec args)
@@ -217,7 +217,7 @@ Local::Local(Wrapper::Ptr wrapper, Ty::Ptr type, AllocaInst *ptr, std::shared_pt
 
 Local::~Local() { args.clear(); }
 
-Local::Ptr Local::create(Wrapper::Ptr wrapper, Ty::Ptr type, AllocaInst *ptr, Val::Ptr initializer) {
+Local::Ptr Local::create(Wrapper::Ptr wrapper, Ty::Ptr type, AllocaInst *ptr, Entity::Ptr initializer) {
     return std::make_shared<Local>(std::move(wrapper), std::move(type), ptr, std::move(initializer));
 }
 
@@ -247,7 +247,7 @@ AllocaInst *Local::operator*() {
     return ptr;
 }
 
-void Local::setInitializer(Val::Ptr value) { initializer = std::move(value); }
+void Local::setInitializer(Entity::Ptr value) { initializer = std::move(value); }
 
 void Local::setInitializer(Func::Ptr function, Entity::Vec args) {
     initializer = std::move(function);
@@ -262,11 +262,11 @@ Ty::Ptr Local::getTy() { return type; }
 
 std::string Local::getName() const { return ptr->getName().str(); }
 
-Val::Ptr Local::dereference(const std::string &name) {
+Val::Ptr Local::dereference(bool isImmediate, const std::string &name) {
     initialize();
 
     LoadInst *load = wrapper->getBuilder()->CreateLoad(type->getTy(), ptr, name);
-    return wrapper->createValue(type, load);
+    return Val::create(wrapper, type, load, isImmediate);
 } 
 
 void Local::initialize() {
@@ -275,6 +275,10 @@ void Local::initialize() {
 
     if (auto value = std::static_pointer_cast<Val>(initializer))
         wrapper->getBuilder()->CreateStore(value->getValuePtr(), ptr);
+    else if (auto arg = std::static_pointer_cast<Arg>(initializer))
+        wrapper->getBuilder()->CreateStore(arg->getPtr(), ptr);
+    else if (auto local = std::static_pointer_cast<Local>(initializer))
+        wrapper->getBuilder()->CreateStore(local->dereference()->getValuePtr(), ptr);
     else { // must be a function
         auto function = std::static_pointer_cast<Func>(initializer);
         if (function->getTy()->isVoidTy()) {
@@ -891,14 +895,15 @@ void Wrapper::eraseFunction(const Func::Ptr &wrap) {
 
 /// LOCALS ///
 
-Local::Ptr Wrapper::declareLocal(const Ty::Ptr &type, const std::string &name, const Val::Ptr &initializer) {
+Local::Ptr Wrapper::declareLocal(const Ty::Ptr &type, const std::string &name, const Entity::Ptr &initializer) {
     AllocaInst *alloca = builder->CreateAlloca(type->getTy(), nullptr, name);
-    Local::Ptr local = parent->addLocal(Local::create(shared_from_this(), type->getPtrTo(), alloca, initializer));
+    Local::Ptr local = parent->addLocal(Local::create(shared_from_this(), type, alloca, initializer));
 
     if (type->isPtrTy()) { // initialize pointers
-        auto cast = std::static_pointer_cast<PtrTy>(type);
-        // TODO: test if this is correct??
-        local->setInitializer(declareLocal(cast->getPointeeTy(), name+"_deep")->dereference());
+        auto pointee = std::static_pointer_cast<PtrTy>(type)->getPointeeTy();
+        // we're not declaring a new local here to avoid it being automatically dereferenced during initialization
+        AllocaInst *deep_alloca = builder->CreateAlloca(pointee->getTy(), nullptr, name + "_deep");
+        local->setInitializer(createValue(pointee, deep_alloca));
     }
 
     return local;
@@ -1249,7 +1254,12 @@ std::pair<Value *, Ty::Ptr> process(const Entity::Ptr &entity, bool load) {
     switch (entity->kind()) {
         case Entity::VALUE: {
             auto convert = std::static_pointer_cast<Val>(entity);
-            return { convert->getValuePtr(), convert->getTy() };
+
+            if (convert->isImmediate() || !load)
+                return { convert->getValuePtr(), convert->getTy() };
+
+            auto deref = convert->dereference();
+            return { deref->getValuePtr(), deref->getTy() };
         }
         case Entity::LOCAL: {
             Value *value;
