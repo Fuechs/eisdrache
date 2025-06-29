@@ -60,9 +60,8 @@ enum Op {
 };
 
 /**
-    * @brief Parent class for references, locals, functions, ...
-    *
-    */
+ * @brief Parent class for references, locals, functions, ...
+ */
 class Entity {
 public:
     using Ptr = std::shared_ptr<Entity>;
@@ -77,6 +76,7 @@ public:
         VALUE,
         LOCAL,
         FUNC,
+        ARG,
         ALIAS,
         VOID,
         PTR,
@@ -119,14 +119,14 @@ public:
     virtual constexpr bool isIntTy()    const { return false; }
     virtual constexpr bool isFloatTy()  const { return false; }
     virtual constexpr bool isSignedTy() const { return false; }
+    virtual constexpr bool isVoidTy()   const { return false; }
 
     constexpr Kind kind() const override = 0;
 };
 
 /**
-     * @brief An alias for a type.
-     *
-     */
+ * @brief An alias for a type.
+ */
 class AliasTy : public Ty {
 public:
     using Ptr = std::shared_ptr<AliasTy>;
@@ -156,7 +156,6 @@ private:
 
 /**
  * @brief Type representing void.
- *
  */
 class VoidTy : public Ty {
 public:
@@ -170,12 +169,13 @@ public:
     bool isValidRHS(Ty::Ptr comp) const override;
     bool isEqual(Ty::Ptr comp) const override;
 
+    constexpr bool isVoidTy() const override { return true; }
+
     constexpr Kind kind() const override { return VOID; }
 };
 
 /**
  * @brief Type representing a pointer to an address.
- *
  */
 class PtrTy : public Ty {
 public:
@@ -270,6 +270,8 @@ public:
     constexpr llvm::Value *getValuePtr() const { return value; }
     constexpr const Ty::Ptr &getTy() const { return type; }
 
+    Val::Ptr dereference(const std::string &name) const;
+
     constexpr Kind kind() const override { return VALUE; }
 
 private:
@@ -278,9 +280,8 @@ private:
 };
 
 /**
-     * @brief A reference to a symbol (local, function, ...).
-     *
-     */
+ * @brief A reference to a symbol (local, function, ...).
+ */
 class Reference : public Entity {
 public:
     using Ptr = std::shared_ptr<Reference>;
@@ -302,130 +303,66 @@ private:
     std::string symbol;
 };
 
- /**
-     * @brief Wrapper for llvm::Value | llvm::AllocaInst;
-     *
-     * This class contains
-     * * the value itself,
-     * * whether the value is a llvm::AllocaInst,
-     * * and the value to be assigned once the value is referenced.
-     * (Relevant for llvm::AllocaInst)
-     */
+class Func;
+
+/**
+ * @brief Wrapper for <code>llvm::AllocaInst</code>
+ */
 class Local : public Entity, public std::enable_shared_from_this<Local> {
 public:
     using Ptr = std::shared_ptr<Local>;
     using Vec = std::vector<Ptr>;
     using Map = std::map<std::string, Ptr>;
 
-    // TODO: instead of llvm::Value it should take wyvern::Val for future values
-    //      maybe needs to take wyvern::Entity to support wyvern::Func as well
+    explicit Local(std::shared_ptr<Wrapper> wrapper = nullptr, Ty::Ptr type = nullptr, llvm::AllocaInst *ptr = nullptr, Val::Ptr initializer = nullptr);
+    explicit Local(std::shared_ptr<Wrapper> wrapper, Ty::Ptr type, llvm::AllocaInst *ptr, std::shared_ptr<Func> initializer, Entity::Vec args);
+    ~Local() override;
 
-    [[deprecated("Use Wrapper::Val instead")]]
-    Local(std::shared_ptr<Wrapper> wrapper, llvm::Constant *constant);
-    explicit Local(std::shared_ptr<Wrapper> wrapper, const Val::Ptr &value, llvm::Value *future = nullptr, std::vector<llvm::Value *> future_args = {});
-
-    explicit Local(std::shared_ptr<Wrapper> wrapper = nullptr, Ty::Ptr type = nullptr, llvm::Value *ptr = nullptr, llvm::Value *future = nullptr, std::vector<llvm::Value *> future_args = {});
-
-    [[deprecated("Use Wrapper::Val instead")]]
-    static Ptr create(std::shared_ptr<Wrapper> wrapper = nullptr, llvm::Constant *constant = nullptr);
-    // FIXME: this may habe to be rewritten somehow to house Vals
-    static Ptr create(std::shared_ptr<Wrapper> wrapper = nullptr, const Val::Ptr &value = nullptr);
-    static Ptr create(std::shared_ptr<Wrapper> wrapper = nullptr, Ty::Ptr type = nullptr, llvm::Value *ptr = nullptr, llvm::Value *future = nullptr, std::vector<llvm::Value *> future_args = {});
+    static Ptr create(std::shared_ptr<Wrapper> wrapper = nullptr, Ty::Ptr type = nullptr, llvm::AllocaInst *ptr = nullptr, Val::Ptr initializer = nullptr);
+    static Ptr create(std::shared_ptr<Wrapper> wrapper, Ty::Ptr type, llvm::AllocaInst *ptr, std::shared_ptr<Func> initializer, Entity::Vec args);
 
     Local &operator=(const Local &copy);
+
     bool operator==(const Local &comp) const;
-    bool operator==(const llvm::Value *comp) const;
+    bool operator==(const llvm::AllocaInst *comp) const;
     llvm::AllocaInst *operator*();
 
-    void setPtr(llvm::Value *ptr);
-    void setFuture(llvm::Value *future);
-    void setFutureArgs(std::vector<llvm::Value *> args);
+    void setInitializer(Val::Ptr value);
+    void setInitializer(std::shared_ptr<Func> function, Entity::Vec args);
     void setTy(Ty::Ptr ty);
 
-    llvm::AllocaInst *getAllocaPtr();
-    llvm::Value *getValuePtr();
+    llvm::AllocaInst *getPtr();
     Ty::Ptr getTy();
     [[nodiscard]] std::string getName() const;
 
-    [[nodiscard]] bool isAlloca() const;
-    // Using this function should be avoided if the loaded value is required in the same block, as it creates unnecessary instructions
-    bool isValidRHS(Local &rhs);
-
     /**
-     * @brief Load the value stored at the address of the local.
-     *
-     * Do <i>NOT</i> use this if you intend to implement dereferencing in a compiler.\n
-     * Use <code>Local::dereference()</code> instead.
-     *
-     * @param force Load value even if Local is not an alloca instruction
-     * @param name Name of the loaded value
-     * @return The loaded value
-     */
-    Ptr loadValue(bool force = false, const std::string &name = "");
-
-    /**
-     * @brief Dereference the stored value of the local.
-     *
-     * This function forcibly loads the value of the local and marks it as manually dereferenced.
-     * If `dereferenced` is true, the loaded value will still be technically treated as an allocation instruction,
-     * and thus doesn't have to be forcibly loaded. Usually, other functions in the wrapper
-     * (e.g., binaryOp()) check if locals were created as an allocation instruction
-     * and automatically dereference them for convenience to use the stored value in operations.
-     *
-     * This function is useful when generating code involving pointers;
-     * the compiler otherwise would have to differentiate dereferences and e.g., only dereference
-     * once for assignments, as the store instruction still requires a pointer, while other instructions
-     * require the immediate value stored at the pointer and thus would have to be dereferenced twice.
-     * <code>
-     * int *x;
-     * *x = *x + 1;
-     * </code>
-     * <br>
-     *
-     * The C++ code above looks roughly like this in LLVM IR:
-     * (without intrinsic types and initialization for readability)
-     * <code>
-     * %x = alloca i32**                        ; declaration; note that it declares i32**, while the original C++ code declared i32* (int*)
-     * %x_load = load i32*, i32** %x            ; first load
-     * %x_load_load = load i32, i32* %x_load    ; second load; the actual value stored at the address x
-     * %add = add i32 1, i32 %x_load_load       ; addition
-     * store i32 %add, i32* %x_load             ; store; the result is assigned to x
-     *                 ^^^^^^^^^^^^ the store instruction requires the pointer to the value stored at x,
-     *                              while the addition required the actual value
-     * </code>
+     * @brief Dereference the stored value of the local. 
+     * (Allocations are always created as pointers.)
      *
      * @param name Name of the dereferenced value
      * @return The dereferenced local
      */
-    Ptr dereference(const std::string &name = "");
+    Val::Ptr dereference(const std::string &name = "");
 
     /**
-     * @brief This function should be called automatically when trying to access `v_ptr` or `a_ptr`.
+     * @brief This function should be called automatically when trying to access the value of the Local.
      *      However, the user can call this function themselves if required.
-     *      This function also checks whether `future` is a nullptr
-     *          and sets `future` to nullptr once it was invoked.
-     *      (`future_args` too)
+     *      This function also checks whether there is any initializer and does nothing if there is none. 
      */
-    void invokeFuture();
+    void initialize();
 
     constexpr Kind kind() const override { return LOCAL; }
 
 private:
-    bool dereferenced; // whether the user manually dereferenced the local
-    union {
-        llvm::Value *v_ptr;
-        llvm::AllocaInst *a_ptr;
-    };
+    llvm::AllocaInst *ptr; // pointer to the allocation instruction (value can be accessed through this)
+    Ty::Ptr type; // note that this is the type of the value, not the ptr
 
-    Ty::Ptr type;
-    llvm::Value *future;
-    std::vector<llvm::Value *> future_args;
+    Entity::Ptr initializer;
+    Entity::Vec args; // arguments if initializer is a function
 };
-
 
 /**
  * @brief Condition for branching.
- *
  */
 class Condition : public Entity {
 public:
@@ -444,6 +381,31 @@ private:
     Entity::Ptr lhs, rhs;
 };
 
+class Arg : public Entity {
+public:
+    using Ptr = std::shared_ptr<Arg>;
+    using Vec = std::vector<Ptr>;
+
+    explicit Arg(Ty::Ptr type, std::string name = "");
+    ~Arg() override;
+
+    static Ptr create(const Ty::Ptr &type, const std::string &name = "");
+
+    constexpr llvm::Argument *getPtr() const { return ptr; }
+    constexpr void setPtr(llvm::Argument *ptr) { this->ptr = ptr; }
+
+    constexpr const Ty::Ptr &getTy() const { return type; }
+
+    constexpr const std::string &getName() { return name; }
+
+    constexpr Kind kind() const override { return ARG; }
+
+private:
+    llvm::Argument *ptr = nullptr;
+    Ty::Ptr type;
+    std::string name;
+};
+
 /**
  * @brief Wrapper for llvm::Function.
  *
@@ -458,19 +420,19 @@ public:
     using Map = std::map<std::string, Ptr>;
 
     Func();
-    Func(std::shared_ptr<Wrapper> wrapper, Ty::Ptr type, const std::string &name, const Ty::Map &parameters, bool entry = false);
+    Func(std::shared_ptr<Wrapper> wrapper, Ty::Ptr type, const std::string &name, Arg::Vec parameters, bool entry = false);
     ~Func() override;
 
     Func &operator=(const Func &copy);
     bool operator==(const Func &comp) const;
     bool operator==(const llvm::Function *comp) const;
-    // update reference local by symbol
-    Local::Ptr operator[](const std::string &symbol);
+    // get parameter or local by symbol
+    Entity::Ptr operator[](const std::string &symbol);
     // get the wrapped llvm::Function
     llvm::Function *operator*() const;
 
     // get argument at index
-    Local::Ptr arg(size_t index);
+    Arg::Ptr arg(size_t index);
     // call this function
     Val::Ptr call(const Entity::Vec &args = {}, const std::string &name = "") const;
     Val::Ptr call(const std::vector<llvm::Value *> &args = {}, const std::string &name = "") const;
@@ -493,8 +455,9 @@ public:
 
     Ty::Ptr getTy();
     std::string getName() const;
-    Local::Ptr getLocal(const std::string &symbol);
-    constexpr const Local::Vec &getArgs() const { return parameters; }
+    // get argument or local by symbol
+    Entity::Ptr getLocal(const std::string &symbol);
+    constexpr const Arg::Vec &getArgs() const { return parameters; }
 
     // print LLVM IR of function
     constexpr void print() const { func->print(llvm::errs()); }
@@ -504,7 +467,7 @@ public:
 private:
     llvm::Function *func;
     Ty::Ptr type;
-    Local::Vec parameters;
+    Arg::Vec parameters;
     Local::Map locals;
 };
 
@@ -541,10 +504,10 @@ public:
      *
      * @param type Type of returned value
      * @param name Function name
-     * @param args Additional parameters
+     * @param args (optional) Additional parameters
      * @return Member function
      */
-    Func::Ptr createMemberFunc(const Ty::Ptr &type, const std::string &name, const Ty::Map &args = Ty::Map());
+    Func::Ptr createMemberFunc(const Ty::Ptr &type, const std::string &name, Arg::Vec args = Arg::Vec());
 
     llvm::Type *getTy() const override;
 
@@ -580,7 +543,7 @@ public:
         SET_AT_INDEX,
     };
 
-    explicit Array(std::shared_ptr<Wrapper> wrapper = nullptr, Ty::Ptr elementTy = nullptr, const std::string &name = "");
+    explicit Array(std::shared_ptr<Wrapper> wrapper = nullptr, const Ty::Ptr &elementTy = nullptr, const std::string &name = "");
     ~Array();
 
     [[nodiscard]] Local::Ptr allocate(const std::string &name = "") const;
@@ -685,21 +648,12 @@ public:
      * 
      * @param type return-type of the function
      * @param name name of the function
-     * @param parameters parameters of the function 
-     * @return wrapped llvm::Function
-     */
-    Func::Ptr declareFunction(const Ty::Ptr &type, const std::string &name, const Ty::Vec &parameters);
-    /**
-     * @brief Declare a llvm::Function.
-     * 
-     * @param type return-type of the function
-     * @param name name of the function
-     * @param parameters (optional) parameters of the function 
+     * @param parameters parameters of the function
      * @param entry (optional) creates entry llvm::BasicBlock in the function body if true
      * @return wrapped llvm::Function
      */
-    Func::Ptr declareFunction(const Ty::Ptr &type, const std::string &name, const Ty::Map &parameters = Ty::Map(), bool entry = false);
-    
+    Func::Ptr declareFunction(const Ty::Ptr &type, const std::string &name, const Arg::Vec &parameters, bool entry = false);
+
     /**
      * @brief Get the Func wrapper object
      * 
@@ -712,8 +666,8 @@ public:
      * @brief Verify that a Func is free of errors.
      *          TODO: Implement this function.
      * @param wrap Func (wrapped llvm::Function)
-     * @return true - Func is error-free.
-     * @return false - Func contains errors.
+     * @return true - Func contains errors.
+     * @return false - Func is error-free.
      */
     static bool verifyFunc(const Func::Ptr &wrap);
 
@@ -751,35 +705,23 @@ public:
      *
      * Do <i>NOT</i> use this function to declare temporary variables created
      * by the compiler or other variables that don't require allocations.
-     * Use <code>createLocal</code> instead.
+     * Use <code>createValue()</code> instead.
      * 
      * @param type Type to allocate
      * @param name (optional) Name of the allocation instruction
-     * @param future (optional) Future value to be assigned to the local variable
-     * @param future_args (optional) Arguments if future value is a function
+     * @param initializer (optional) Value to be assigned if the variable is accessed
      * @return Wrapped allocation instruction
      */
-    Local::Ptr declareLocal(const Ty::Ptr &type, const std::string &name = "", llvm::Value *future = nullptr, const ValueVec &future_args = ValueVec());
+    Local::Ptr declareLocal(const Ty::Ptr &type, const std::string &name = "", const Val::Ptr &initializer = nullptr);
 
     /**
-     * @brief Create a local variable that is <i>not</i> an allocation.
+     * @brief Create a value.
      *
-     * @param type Type of the variable
-     * @param value (optional) Value the variable holds
-     * @return Wrapped variable
+     * @param type Type of the value
+     * @param value Value of the variable
+     * @return Wrapped value
      */
-    Local::Ptr createLocal(const Ty::Ptr &type, llvm::Value *value = nullptr);
-
     Val::Ptr createValue(const Ty::Ptr &type, llvm::Value *value = nullptr);
-
-    /**
-     * @brief Load the value of a local variable.
-     * 
-     * @param local Wrapped llvm::Value
-     * @param name (optional) Name of the loaded value.
-     * @return Local::Ptr - Wrapped llvm::Value
-     */
-    static Local::Ptr loadLocal(const Local::Ptr &local, const std::string &name = "");
 
     /**
      * @brief Store a value in a local variable.
@@ -789,6 +731,7 @@ public:
      * @return Store instruction returned by llvm::IRBuilder
      */
     llvm::StoreInst *storeValue(const Entity::Ptr &local, const Entity::Ptr &value) const;
+
     /**
      * @brief Store a value in a local variable.
      * 
@@ -797,23 +740,6 @@ public:
      * @return Store instruction returned by llvm::IRBuilder
      */
     llvm::StoreInst *storeValue(const Local::Ptr &local, llvm::Constant *value) const;
-
-    /**
-     * @brief Create an instruction for the future assignment of a local
-     * 
-     * @param local The local
-     * @param value Value to be assigned
-     */
-    static void createFuture(Local &local, llvm::Value *value);
-    /**
-     * @brief Create an instruction for the future assignment of a local
-     * 
-     * @param local The local
-     * @param func Function to be called on local
-     * @param args Arguments for the function call
-     */
-    static void createFuture(Local &local, const Func &func, const ValueVec &args);
-
 
     /// STRUCT TYPES ///
 
@@ -835,6 +761,7 @@ public:
      * @return Local::Ptr - Wrapped alloca instruction
      */
     Local::Ptr allocateStruct(const Struct::Ptr &wrap, const std::string &name = "");
+
     /**
      * @brief Allocate the object of the struct type.
      *      Automatically appends to Func::locals.
@@ -851,9 +778,9 @@ public:
      * @param parent Parent of the element
      * @param index Index of the element
      * @param name Name of the returned value
-     * @return Local::Ptr - Wrapped llvm::Value
+     * @return Wrapped llvm::Value
      */
-    Local::Ptr getElementPtr(const Local::Ptr &parent, size_t index, const std::string &name = "");
+    Val::Ptr getElementPtr(const Entity::Ptr &parent, size_t index, const std::string &name = "");
 
     /**
      * @brief Get the value of an element at an index
@@ -861,9 +788,9 @@ public:
      * @param parent Parent of the element
      * @param index Index of the element
      * @param name Name of the returned value
-     * @return Local::Ptr - Wrapped llvm::Value
+     * @return Wrapped llvm::Value
      */
-    Local::Ptr getElementVal(const Local::Ptr &parent, size_t index, const std::string &name = "");
+    Val::Ptr getElementVal(const Entity::Ptr &parent, size_t index, const std::string &name = "");
 
     /// BUILDER ///
 
@@ -874,6 +801,7 @@ public:
      * @return ReturnInst * - Return Instruction returned from llvm::IRBuilder
      */
     llvm::ReturnInst *createRet(llvm::BasicBlock *next = nullptr) const;
+
     /**
      * @brief Create a return instruction with a value.
      * 
@@ -882,6 +810,7 @@ public:
      * @return ReturnInst * - Return Instruction returned from llvm::IRBuilder
      */
     llvm::ReturnInst *createRet(const Entity::Ptr &value, llvm::BasicBlock *next = nullptr) const;
+
     /**
      * @brief Create a return instruction with a constant.
      * 
@@ -951,7 +880,7 @@ public:
      * @param value The value
      * @param to The destination type
      * @param name (optional) The name of the cast value
-     * @return Local::Ptr
+     * @return Result
      */
     Val::Ptr typeCast(const Entity::Ptr &value, const Ty::Ptr &to, const std::string &name = "typecast");
 
@@ -961,9 +890,9 @@ public:
      * @param array The array
      * @param index The index of the element
      * @param name (optional) The name of the returned pointer
-     * @return Local::Ptr
+     * @return Wrapped value
      */
-    Local::Ptr getArrayElement(const Entity::Ptr &array, size_t index, const std::string &name = "");
+    Val::Ptr getArrayElement(const Entity::Ptr &array, size_t index, const std::string &name = "");
 
     /**
      * @brief Get the pointer to an element of an array.
@@ -971,9 +900,9 @@ public:
      * @param array The array
      * @param index The index of the element
      * @param name (optional) The name of the returned pointer
-     * @return Local::Ptr
+     * @return Wrapped value
      */
-    Local::Ptr getArrayElement(const Entity::Ptr &array, const Entity::Ptr &index, const std::string &name = "");
+    Val::Ptr getArrayElement(const Entity::Ptr &array, const Entity::Ptr &index, const std::string &name = "");
 
     /**
      * @brief Check whether the given pointer is a nullptr and return the result.
@@ -992,9 +921,9 @@ public:
      * @param op The unary operation
      * @param expr The expression
      * @param name Name of the result
-     * @return Local::Ptr
+     * @return Result
      */
-    Local::Ptr unaryOp(Op op, const Local::Ptr &expr, const std::string &name = "");
+    Val::Ptr unaryOp(Op op, const Local::Ptr &expr, const std::string &name = "");
 
     /**
      * @brief Create jump instructions and if/else blocks. Sets IRBuilder to block 'then'.

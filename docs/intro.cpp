@@ -437,10 +437,10 @@ Entity::Ptr CallExprAST::codegen() {
 
 Func::Ptr PrototypeAST::codegen() {
   // Create a map of argument names and types
-  Ty::Map args;
+  Arg::Vec args;
   for (auto &arg : Args)
     // Each argument is a double
-    args.emplace_back(arg, wrapper->getFloatTy(64));
+    args.push_back(Arg::create(wrapper->getFloatTy(64), arg));
 
   // Function returns a double
   return wrapper->declareFunction(wrapper->getFloatTy(64), Name, args);

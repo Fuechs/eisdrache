@@ -172,6 +172,15 @@ Val::Ptr Val::create(Wrapper::Ptr wrapper, const Ty::Ptr &type, Value *value) {
     return std::make_shared<Val>(std::move(wrapper), type, value);
 }
 
+Val::Ptr Val::dereference(const std::string &name) const {
+    if (!type->isPtrTy())
+        complain("wyvern::Val::dereference(): Value isn't a pointer.");
+
+    Ty::Ptr loadTy = std::static_pointer_cast<PtrTy>(type)->getPointeeTy();
+    LoadInst *load = wrapper->getBuilder()->CreateLoad(loadTy->getTy(), value, name);
+    return wrapper->createValue(loadTy, load);
+}
+
 /// REFERENCE ///
 
 Reference::Reference(Wrapper::Ptr wrapper, std::string symbol)
@@ -199,129 +208,92 @@ Entity::Ptr Reference::getEntity() const {
 
 /// LOCAL ///
 
-Local::Local(Wrapper::Ptr wrapper, Constant *constant)
-: Entity(std::move(wrapper)), dereferenced(false), v_ptr(constant),
-    type(wrapper->addTy(Ty::create(wrapper, constant->getType()))), future(nullptr) {}
+Local::Local(Wrapper::Ptr wrapper, Ty::Ptr type, AllocaInst *ptr, Val::Ptr initializer) 
+: Entity(std::move(wrapper)), ptr(ptr), type(std::move(type)), initializer(std::move(initializer)) {}
 
-Local::Local(Wrapper::Ptr wrapper, const Val::Ptr &value, Value *future, std::vector<Value *> future_args)
-: Entity(std::move(wrapper)), dereferenced(false), type(value->getTy()), v_ptr(value->getValuePtr()), future(future), future_args(std::move(future_args)) {}
+Local::Local(Wrapper::Ptr wrapper, Ty::Ptr type, AllocaInst *ptr, std::shared_ptr<Func> initializer, Entity::Vec args)
+: Entity(std::move(wrapper)), ptr(ptr), type(std::move(type)),
+    initializer(std::move(initializer)), args(std::move(args)) {}
 
-Local::Local(Wrapper::Ptr wrapper, Ty::Ptr type, Value *ptr, Value *future, std::vector<Value *> future_args)
-: Entity(std::move(wrapper)), dereferenced(false), v_ptr(ptr), type(std::move(type)),
-    future(future), future_args(std::move(future_args)) {}
+Local::~Local() { args.clear(); }
 
-Local::Ptr Local::create(Wrapper::Ptr wrapper, Constant *constant) {
-    return std::make_shared<Local>(std::move(wrapper), constant);
+Local::Ptr Local::create(Wrapper::Ptr wrapper, Ty::Ptr type, AllocaInst *ptr, Val::Ptr initializer) {
+    return std::make_shared<Local>(std::move(wrapper), std::move(type), ptr, std::move(initializer));
 }
 
-Local::Ptr Local::create(Wrapper::Ptr wrapper, const Val::Ptr &value) {
-    return std::make_shared<Local>(std::move(wrapper), value);
+Local::Ptr Local::create(Wrapper::Ptr wrapper, Ty::Ptr type, AllocaInst *ptr, std::shared_ptr<Func> initializer, Entity::Vec args) {
+    return std::make_shared<Local>(std::move(wrapper), std::move(type), ptr,
+        std::move(initializer), std::move(args));
 }
 
-Local::Ptr Local::create(Wrapper::Ptr wrapper, Ty::Ptr type, Value *ptr, Value *future, std::vector<Value *> future_args) {
-    return std::make_shared<Local>(std::move(wrapper), std::move(type), ptr, future, std::move(future_args));
-}
-
-Local& Local::operator=(const Local &copy) {
+Local &Local::operator=(const Local &copy) {
     if (this == &copy)
         return *this;
 
-    dereferenced = copy.dereferenced;
-    v_ptr = copy.v_ptr;
+    ptr = copy.ptr;
     type = copy.type;
-    future = copy.future;
+    initializer = copy.initializer;
+    args = copy.args;
     wrapper = copy.wrapper;
     return *this;
 }
 
-bool Local::operator==(const Local &comp) const { return v_ptr == comp.v_ptr; }
+bool Local::operator==(const Local &comp) const { return ptr == comp.ptr; }
 
-bool Local::operator==(const Value *comp) const { return v_ptr == comp; }
+bool Local::operator==(const AllocaInst *comp) const { return ptr == comp; }
 
 AllocaInst *Local::operator*() {
-    invokeFuture();
-    if (!isAlloca())
-        return complain("Wrapper::Local::operator*(): Tried to get AllocaInst * of Value * (%"+v_ptr->getName().str()+").");
-    return a_ptr;
+    initialize();
+    return ptr;
 }
 
-void Local::setPtr(Value *ptr) { v_ptr = ptr; }
+void Local::setInitializer(Val::Ptr value) { initializer = std::move(value); }
 
-void Local::setFuture(Value *future) { this->future = future; }
-
-void Local::setFutureArgs(std::vector<Value *> args) { future_args = std::move(args); }
+void Local::setInitializer(Func::Ptr function, Entity::Vec args) {
+    initializer = std::move(function);
+    args = std::move(args);
+}
 
 void Local::setTy(Ty::Ptr ty) { type = std::move(ty); }
 
-AllocaInst *Local::getAllocaPtr() { return operator*(); }
-
-Value *Local::getValuePtr() {
-    invokeFuture();
-    return v_ptr;
-}
+AllocaInst *Local::getPtr() { return operator*(); }
 
 Ty::Ptr Local::getTy() { return type; }
 
-std::string Local::getName() const {
-    if (!v_ptr || !v_ptr->hasName())
-        return "unnamed";
-    return v_ptr->getName().str();
-}
+std::string Local::getName() const { return ptr->getName().str(); }
 
-bool Local::isAlloca() const { return dyn_cast<AllocaInst>(v_ptr); }
+Val::Ptr Local::dereference(const std::string &name) {
+    initialize();
 
-bool Local::isValidRHS(Local &rhs) {
-    return loadValue()->getTy()->isValidRHS(rhs.loadValue()->getTy());
-}
+    LoadInst *load = wrapper->getBuilder()->CreateLoad(type->getTy(), ptr, name);
+    return wrapper->createValue(type, load);
+} 
 
-Local::Ptr Local::loadValue(bool force, const std::string &name) {
-    if ((!force && !isAlloca() && !dereferenced) || !type->isPtrTy())
-        return shared_from_this();
-
-    if (isAlloca())
-        invokeFuture();
-
-    Ty::Ptr loadTy = std::static_pointer_cast<PtrTy>(type)->getPointeeTy();
-    LoadInst *load = wrapper->getBuilder()->CreateLoad(loadTy->getTy(),
-        v_ptr, name.empty() ? v_ptr->getName().str()+"_load" : name);
-    return wrapper->createLocal(loadTy, load);
-}
-
-Local::Ptr Local::dereference(const std::string &name) {
-    // this should only dereference once in all cases
-    // further operations should dereference further if required
-    if (!type->isPtrTy())
-        return shared_from_this();
-
-    if (isAlloca())
-        invokeFuture();
-
-    Ty::Ptr loadTy = std::static_pointer_cast<PtrTy>(type)->getPointeeTy();
-    LoadInst *load = wrapper->getBuilder()->CreateLoad(loadTy->getTy(),
-        v_ptr, name.empty() ? v_ptr->getName().str()+"_load" : name);
-    auto local = wrapper->createLocal(loadTy, load);
-    local->dereferenced = true;
-    return local;
-}
-
-void Local::invokeFuture() {
-    if (!future)
+void Local::initialize() {
+    if (!initializer)
         return;
 
-    if (auto func = dyn_cast<Function>(future)) {
-        if (func->getReturnType()->isVoidTy()) {
-            wrapper->getBuilder()->CreateCall(func, future_args);
-            future = nullptr;
-            future_args.clear();
-            return;
+    if (auto value = std::static_pointer_cast<Val>(initializer))
+        wrapper->getBuilder()->CreateStore(value->getValuePtr(), ptr);
+    else { // must be a function
+        auto function = std::static_pointer_cast<Func>(initializer);
+        if (function->getTy()->isVoidTy()) {
+            // should be a constructor
+            // so has to insert itself as the first argument
+            Val::Ptr this_as_value = wrapper->createValue(type->getPtrTo(), ptr);
+            // constructor requires a pointer to the struct
+            // a local would be dereferenced automatically
+            args.insert(args.begin(), this_as_value);
+            function->call(args);
+        } else {
+            // call the function and assign the result
+            auto ret = function->call(args);
+            wrapper->getBuilder()->CreateStore(ret->getValuePtr(), ptr);
         }
-
-        future = wrapper->getBuilder()->CreateCall(func, future_args, getName()+"_future");
     }
 
-    wrapper->getBuilder()->CreateStore(future, v_ptr);
-    future = nullptr;
-    future_args.clear();
+    initializer = nullptr;
+    args.clear();
 }
 
 /// CONDITION ///
@@ -384,28 +356,35 @@ CmpInst::Predicate Condition::getPredicate() const {
     return CmpInst::Predicate::BAD_ICMP_PREDICATE; // random value
 }
 
+/// ARG ///
+
+Arg::Arg(Ty::Ptr type, std::string name)
+: Entity(nullptr), type(std::move(type)), name(std::move(name)) {}
+
+Arg::~Arg() { name.clear(); }
+
+Arg::Ptr Arg::create(const Ty::Ptr &type, const std::string &name) {
+    return std::make_shared<Arg>(type, name);
+}
+
 /// FUNC ///
 
 Func::Func() {
     func = nullptr;
     type = nullptr;
-    parameters = Local::Vec();
+    parameters = Arg::Vec();
     locals = Local::Map();
     wrapper = nullptr;
 }
 
-Func::Func(Wrapper::Ptr wrapper, Ty::Ptr type, const std::string &name, const Ty::Map &parameters, bool entry)
-: Entity(std::move(wrapper)), type(std::move(type)) {
-
-    this->locals = Local::Map();
-    this->parameters = Local::Vec();
+Func::Func(Wrapper::Ptr wrapper, Ty::Ptr type, const std::string &name, Arg::Vec parameters, bool entry)
+: Entity(std::move(wrapper)), type(std::move(type)), parameters(std::move(parameters)), locals(Local::Map()) {
 
     std::vector<std::string> paramNames;
     std::vector<Type *> paramTypes;
-    for (const auto &[name, type] : parameters) {
-        paramNames.push_back(name);
-        paramTypes.push_back(type->getTy());
-        this->parameters.push_back(Local::create(wrapper, type));
+    for (const auto &arg : this->parameters) {
+        paramNames.push_back(arg->getName());
+        paramTypes.push_back(arg->getTy()->getTy());
     }
 
     FunctionType *FT = FunctionType::get(this->type->getTy(), paramTypes, false);
@@ -441,16 +420,12 @@ bool Func::operator==(const Func &comp) const { return func == comp.func; }
 
 bool Func::operator==(const Function *comp) const { return func == comp; }
 
-Local::Ptr Func::operator[](const std::string &symbol) {
+Entity::Ptr Func::operator[](const std::string &symbol) {
     if (locals.contains(symbol))
         return locals[symbol];
 
-    for (auto &param : parameters)
-        if (param->getName() == symbol)
-            return param;
-
     auto x = std::ranges::find_if(parameters.begin(), parameters.end(),
-        [&symbol] (const Local::Ptr &param) { return param->getName() == symbol; });
+        [&symbol] (const Arg::Ptr &param) { return param->getName() == symbol; });
     if (x != parameters.end())
         return *x;
 
@@ -459,15 +434,15 @@ Local::Ptr Func::operator[](const std::string &symbol) {
 
 Function *Func::operator*() const { return func; }
 
-Local::Ptr Func::arg(size_t index) { return parameters[index]; }
+Arg::Ptr Func::arg(size_t index) { return parameters[index]; }
 
 Val::Ptr Func::call(const Entity::Vec &args, const std::string &name) const {
     std::vector<Value *> raw_args = {};
     for (auto &arg : args)
         raw_args.push_back(process(arg).first);
     return this->call(raw_args, name);
-}
-
+}      
+       
 Val::Ptr Func::call(const std::vector<Value *> &args, const std::string &name) const {
     Value *ret = wrapper->getBuilder()->CreateCall(func, args, name);
     return Val::create(wrapper, type, ret);
@@ -505,7 +480,7 @@ Ty::Ptr Func::getTy() { return type; }
 
 std::string Func::getName() const { return func->getName().str(); }
 
-Local::Ptr Func::getLocal(const std::string &symbol) { return (*this)[symbol]; }
+Entity::Ptr Func::getLocal(const std::string &symbol) { return (*this)[symbol]; }
 
 /// STRUCT ///
 
@@ -548,15 +523,12 @@ Ty::Ptr Struct::operator[](size_t index) { return elements.at(index); }
 StructType *Struct::operator*() const { return type; }
 
 Local::Ptr Struct::allocate(const std::string &name) {
-    AllocaInst *alloca = wrapper->getBuilder()->CreateAlloca(**this, nullptr, name);
-    return wrapper->createLocal(shared_from_this(), alloca);
+    return wrapper->declareLocal(shared_from_this(), name);
 }
 
-Func::Ptr Struct::createMemberFunc(const Ty::Ptr &type, const std::string &name, const Ty::Map &args) {
-    Ty::Map processed = {{"this", getPtrTo()}};
-    for (const Ty::Map::value_type &x : args)
-        processed.push_back(x);
-    return wrapper->declareFunction(type, this->name+"_"+name, processed, true);
+Func::Ptr Struct::createMemberFunc(const Ty::Ptr &type, const std::string &name, Arg::Vec args) {
+    args.insert(args.begin(), Arg::create(getPtrTo(), "this"));
+    return wrapper->declareFunction(type, this->name+"_"+name, args, true);
 }
 
 Type *Struct::getTy() const { return type; }
@@ -570,7 +542,7 @@ bool Struct::isEqual(const Ty::Ptr comp) const {
 
 /// ARRAY ///
 
-Array::Array(Wrapper::Ptr wrapper, Ty::Ptr elementTy, const std::string &name) {
+Array::Array(Wrapper::Ptr wrapper, const Ty::Ptr &elementTy, const std::string &name) {
     this->wrapper = std::move(wrapper);
     this->name = name;
     this->elementTy = elementTy;
@@ -585,72 +557,72 @@ Array::Array(Wrapper::Ptr wrapper, Ty::Ptr elementTy, const std::string &name) {
     Func::Ptr malloc = wrapper->getFunc("malloc");
     if (!malloc)
         malloc = wrapper->declareFunction(wrapper->getUnsignedPtrTy(8), "malloc",
-            {wrapper->getSizeTy()});
+            {Arg::create(wrapper->getSizeTy())});
 
     Func::Ptr free = wrapper->getFunc("free");
     if (!free)
         free = wrapper->declareFunction(wrapper->getVoidTy(), "free",
-            {wrapper->getUnsignedPtrTy(8)});
+            {Arg::create(wrapper->getUnsignedPtrTy(8))});
 
     Func::Ptr memcpy = wrapper->getFunc("memcpy");
     if (!memcpy)
         memcpy = wrapper->declareFunction(wrapper->getUnsignedPtrTy(8), "memcpy",
-            {wrapper->getUnsignedPtrTy(8),
-                wrapper->getUnsignedPtrTy(8),
-                wrapper->getSizeTy()});
+            {Arg::create(wrapper->getUnsignedPtrTy(8)),
+                Arg::create(wrapper->getUnsignedPtrTy(8)),
+                Arg::create(wrapper->getSizeTy())});
 
     { // get_buffer
     get_buffer = self->createMemberFunc(bufferTy, "get_buffer");
-    Local::Ptr buffer = wrapper->getElementVal(get_buffer->arg(0), 0, "buffer");
+    Val::Ptr buffer = wrapper->getElementVal(get_buffer->arg(0), 0, "buffer");
     wrapper->createRet(buffer);
     }
 
     { // set_buffer
     set_buffer = self->createMemberFunc(wrapper->getVoidTy(), "set_buffer",
-        {{"buffer", bufferTy}});
-    Local::Ptr buffer_ptr = wrapper->getElementPtr(set_buffer->arg(0), 0, "buffer_ptr");
+                                        {Arg::create(bufferTy, "buffer")});
+    Val::Ptr buffer_ptr = wrapper->getElementPtr(set_buffer->arg(0), 0, "buffer_ptr");
     wrapper->storeValue(buffer_ptr, set_buffer->arg(1));
     wrapper->createRet();
     }
 
     { // get_size
     get_size = self->createMemberFunc(wrapper->getSizeTy(), "get_size");
-    Local::Ptr size = wrapper->getElementVal(get_size->arg(0), 1, "size");
+    Val::Ptr size = wrapper->getElementVal(get_size->arg(0), 1, "size");
     wrapper->createRet(size);
     }
 
     { // set_size
     set_size = self->createMemberFunc(wrapper->getVoidTy(), "set_size",
-        {{"size", wrapper->getSizeTy()}});
-    Local::Ptr size_ptr = wrapper->getElementPtr(set_size->arg(0), 1, "size_ptr");
+                                      {Arg::create(wrapper->getSizeTy(), "size")});
+    Val::Ptr size_ptr = wrapper->getElementPtr(set_size->arg(0), 1, "size_ptr");
     wrapper->storeValue(size_ptr, set_size->arg(1));
     wrapper->createRet();
     }
 
     { // get_max
     get_max = self->createMemberFunc(wrapper->getSizeTy(), "get_max");
-    Local::Ptr max = wrapper->getElementVal(get_max->arg(0), 2, "max");
+    Val::Ptr max = wrapper->getElementVal(get_max->arg(0), 2, "max");
     wrapper->createRet(max);
     }
 
     { // set_max
     set_max = self->createMemberFunc(wrapper->getVoidTy(), "set_max",
-        {{"max", wrapper->getSizeTy()}});
-    Local::Ptr max_ptr = wrapper->getElementPtr(set_max->arg(0), 1, "max_ptr");
+                                     {Arg::create(wrapper->getSizeTy(), "max")});
+    Val::Ptr max_ptr = wrapper->getElementPtr(set_max->arg(0), 1, "max_ptr");
     wrapper->storeValue(max_ptr, set_max->arg(1));
     wrapper->createRet();
     }
 
     { // get_factor
     get_factor = self->createMemberFunc(wrapper->getSizeTy(), "get_factor");
-    Local::Ptr factor = wrapper->getElementVal(get_factor->arg(0), 3, "factor");
+    Val::Ptr factor = wrapper->getElementVal(get_factor->arg(0), 3, "factor");
     wrapper->createRet(factor);
     }
 
     { // set_factor
     set_factor = self->createMemberFunc(wrapper->getVoidTy(), "set_factor",
-        {{"factor", wrapper->getSizeTy()}});
-    Local::Ptr factor_ptr = wrapper->getElementPtr(set_factor->arg(0), 1, "factor_ptr");
+                                        {Arg::create(wrapper->getSizeTy(), "factor")});
+    Val::Ptr factor_ptr = wrapper->getElementPtr(set_factor->arg(0), 1, "factor_ptr");
     wrapper->storeValue(factor_ptr, set_factor->arg(1));
     wrapper->createRet();
     }
@@ -659,28 +631,28 @@ Array::Array(Wrapper::Ptr wrapper, Ty::Ptr elementTy, const std::string &name) {
     constructor = self->createMemberFunc(wrapper->getVoidTy(), "constructor");
     (**constructor)->setCallingConv(CallingConv::Fast);
     (**constructor)->setDoesNotThrow();
-    set_buffer->call({constructor->arg(0)->getValuePtr(), **wrapper->getNullPtr(bufferTy)});
-    set_size->call({constructor->arg(0)->getValuePtr(), **wrapper->getInt(64, 0)});
-    set_max->call({constructor->arg(0)->getValuePtr(), **wrapper->getInt(64, 0)});
-    set_factor->call({constructor->arg(0)->getValuePtr(), **wrapper->getInt(64, 16)});
+    set_buffer->call({constructor->arg(0)->getPtr(), **wrapper->getNullPtr(bufferTy)});
+    set_size->call({constructor->arg(0)->getPtr(), **wrapper->getInt(64, 0)});
+    set_max->call({constructor->arg(0)->getPtr(), **wrapper->getInt(64, 0)});
+    set_factor->call({constructor->arg(0)->getPtr(), **wrapper->getInt(64, 16)});
     wrapper->createRet();
     }
 
     { // constructor_size
     constructor_size = self->createMemberFunc(wrapper->getVoidTy(), "constructor_size",
-        {{"size", wrapper->getSizeTy()}});
-    Local::Ptr byteSize = Local::create(wrapper, wrapper->getInt(64, elementTy->getBit() / 8));
+                                              {Arg::create(wrapper->getSizeTy(), "size")});
+    Val::Ptr byteSize = wrapper->getInt(64, elementTy->getBit() / 8);
     Val::Ptr bytes = wrapper->binaryOp(MUL, constructor_size->arg(1), byteSize, "bytes");
-    set_buffer->call({constructor_size->arg(0)->getValuePtr(), **malloc->call({bytes}, "buffer")});
+    set_buffer->call({constructor_size->arg(0)->getPtr(), **malloc->call({bytes}, "buffer")});
     set_size->call({constructor_size->arg(0), constructor_size->arg(1)});
-    set_max->call({constructor_size->arg(0)->getValuePtr(), **wrapper->getInt(64, 0)});
-    set_factor->call({constructor_size->arg(0)->getValuePtr(), **wrapper->getInt(64, 16)});
+    set_max->call({constructor_size->arg(0)->getPtr(), **wrapper->getInt(64, 0)});
+    set_factor->call({constructor_size->arg(0)->getPtr(), **wrapper->getInt(64, 16)});
     wrapper->createRet();
     }
 
     { // constructor_copy
     constructor_copy = self->createMemberFunc(wrapper->getVoidTy(), "constructor_copy",
-        {{"original", self->getPtrTo()}});
+                                              {Arg::create(self->getPtrTo(), "original")});
     // TODO: implement copy constructor
     wrapper->createRet();
     }
@@ -703,12 +675,12 @@ Array::Array(Wrapper::Ptr wrapper, Ty::Ptr elementTy, const std::string &name) {
 
     { // resize
     resize = self->createMemberFunc(wrapper->getVoidTy(), "resize",
-        {{"new_size", wrapper->getSizeTy()}});
+                                    {Arg::create(wrapper->getSizeTy(), "new_size")});
     BasicBlock *copy = wrapper->createBlock("copy");
     BasicBlock *empty = wrapper->createBlock("empty");
     BasicBlock *end = wrapper->createBlock("end");
 
-    Local::Ptr byteSize = Local::create(wrapper, wrapper->getInt(64, elementTy->getBit() / 8));
+    Val::Ptr byteSize = wrapper->getInt(64, elementTy->getBit() / 8);
     Val::Ptr bytes = wrapper->binaryOp(MUL, resize->arg(1), byteSize, "bytes");
     Val::Ptr new_buffer = malloc->call({bytes}, "new_buffer");
     Val::Ptr buffer = get_buffer->call({resize->arg(0)}, "buffer");
@@ -725,15 +697,15 @@ Array::Array(Wrapper::Ptr wrapper, Ty::Ptr elementTy, const std::string &name) {
     wrapper->jump(end);
 
     wrapper->setBlock(end);
-    set_buffer->call({resize->arg(0)->getValuePtr(), **new_buffer});
-    Local::Ptr max_ptr = wrapper->getElementPtr(resize->arg(0), 3, "max_ptr");
+    set_buffer->call({resize->arg(0)->getPtr(), **new_buffer});
+    Val::Ptr max_ptr = wrapper->getElementPtr(resize->arg(0), 3, "max_ptr");
     wrapper->storeValue(max_ptr, resize->arg(1));
     wrapper->createRet();
     }
 
     { // is_valid_index
     is_valid_index = self->createMemberFunc(wrapper->getBoolTy(), "is_valid_index",
-        {{"index", wrapper->getSizeTy()}});
+                                            {Arg::create(wrapper->getSizeTy(), "index")});
     Val::Ptr max = get_max->call({is_valid_index->arg(0)}, "max");
     Val::Ptr comparison = wrapper->binaryOp(LES, is_valid_index->arg(1), max, "equals");
     wrapper->createRet(comparison);
@@ -741,19 +713,20 @@ Array::Array(Wrapper::Ptr wrapper, Ty::Ptr elementTy, const std::string &name) {
 
     { // get_at_index
     get_at_index = self->createMemberFunc(elementTy, "get_at_index",
-        {{"index", wrapper->getUnsignedTy(32)}});
+                                        {Arg::create(wrapper->getUnsignedTy(32), "index")});
     Val::Ptr buffer = get_buffer->call({get_at_index->arg(0)}, "buffer");
-    Local::Ptr element_ptr = wrapper->getArrayElement(buffer, get_at_index->arg(1), "element_ptr");
-    wrapper->createRet(element_ptr->loadValue(true, "element"));
+    Val::Ptr element_ptr = wrapper->getArrayElement(buffer, get_at_index->arg(1), "element_ptr");
+    wrapper->createRet(element_ptr->dereference("element"));
     }
 
     { // set_at_index
     set_at_index = self->createMemberFunc(wrapper->getVoidTy(), "set_at_index",
-        {{"index", wrapper->getUnsignedTy(32)}, {"value", elementTy}});
+        {Arg::create(wrapper->getUnsignedTy(32), "index"),
+                Arg::create(elementTy, "value")});
     Val::Ptr buffer = get_buffer->call({set_at_index->arg(0)}, "buffer");
     Value *raw_ptr = wrapper->getBuilder()->CreateGEP(bufferTy->getTy(), buffer->getValuePtr(),
-        {set_at_index->arg(1)->getValuePtr()}, "element_ptr");
-    Local::Ptr element_ptr = Local::create(wrapper, bufferTy, raw_ptr);
+        {set_at_index->arg(1)->getPtr()}, "element_ptr");
+    Val::Ptr element_ptr = wrapper->createValue(bufferTy, raw_ptr);
     wrapper->storeValue(element_ptr, set_at_index->arg(2));
     wrapper->createRet();
     }
@@ -790,7 +763,7 @@ Val::Ptr Array::call(Member callee, const std::vector<Value *> &args, const std:
 Val::Ptr Array::call(Member callee, const Local::Vec &args, const std::string &name) const {
     std::vector<Value *> raw_args = {};
     for (auto &local : args)
-        raw_args.push_back(local->getValuePtr());
+        raw_args.push_back(local->getPtr());
 
     return call(callee, raw_args, name);
 }
@@ -880,15 +853,7 @@ Val::Ptr Wrapper::getNullPtr(const Ty::Ptr &ptrTy) {
 
 /// FUNCTIONS ///
 
-Func::Ptr Wrapper::declareFunction(const Ty::Ptr &type, const std::string &name, const Ty::Vec &parameters) {
-    auto parsedParams = Ty::Map();
-    for (const Ty::Ptr &param : parameters)
-        parsedParams.emplace_back(std::to_string(parsedParams.size()), param);
-    functions[name] = std::make_shared<Func>(shared_from_this(), type, name, parsedParams);
-    return parent = functions.at(name);
-}
-
-Func::Ptr Wrapper::declareFunction(const Ty::Ptr &type, const std::string &name, const Ty::Map &parameters, const bool entry) {
+Func::Ptr Wrapper::declareFunction(const Ty::Ptr &type, const std::string &name, const Arg::Vec &parameters, bool entry) {
     functions[name] = std::make_shared<Func>(shared_from_this(), type, name, parameters, entry);
     return parent = functions.at(name);
 }
@@ -926,28 +891,21 @@ void Wrapper::eraseFunction(const Func::Ptr &wrap) {
 
 /// LOCALS ///
 
-Local::Ptr Wrapper::declareLocal(const Ty::Ptr &type, const std::string &name, Value *value, const ValueVec &future_args) {
+Local::Ptr Wrapper::declareLocal(const Ty::Ptr &type, const std::string &name, const Val::Ptr &initializer) {
     AllocaInst *alloca = builder->CreateAlloca(type->getTy(), nullptr, name);
-    Local::Ptr local = parent->addLocal(Local::create(shared_from_this(), type->getPtrTo(), alloca, value, future_args));
+    Local::Ptr local = parent->addLocal(Local::create(shared_from_this(), type->getPtrTo(), alloca, initializer));
 
     if (type->isPtrTy()) { // initialize pointers
         auto cast = std::static_pointer_cast<PtrTy>(type);
-        local->setFuture(declareLocal(cast->getPointeeTy(), name+"_deep")->getValuePtr());
+        // TODO: test if this is correct??
+        local->setInitializer(declareLocal(cast->getPointeeTy(), name+"_deep")->dereference());
     }
 
     return local;
 }
 
-Local::Ptr Wrapper::createLocal(const Ty::Ptr &type, Value *value) {
-    return parent->addLocal(Local::create(shared_from_this(), type, value));
-}
-
 Val::Ptr Wrapper::createValue(const Ty::Ptr &type, Value *value) {
     return Val::create(shared_from_this(), type, value);
-}
-
-Local::Ptr Wrapper::loadLocal(const Local::Ptr &local, const std::string &name) {
-    return local->loadValue(false, name);
 }
 
 StoreInst *Wrapper::storeValue(const Entity::Ptr &local, const Entity::Ptr &value) const {
@@ -964,14 +922,7 @@ StoreInst *Wrapper::storeValue(const Local::Ptr &local, Constant *value) const {
     if (!local->getTy()->isPtrTy())
         return complain("Wrapper::storeValue(): Local is not a pointer.");
 
-    return builder->CreateStore(value, local->getValuePtr());
-}
-
-void Wrapper::createFuture(Local &local, Value *value) { local.setFuture(value); }
-
-void Wrapper::createFuture(Local &local, const Func &func, const ValueVec &args) {
-    local.setFuture(*func);
-    local.setFutureArgs(args);
+    return builder->CreateStore(value, local->getPtr());
 }
 
 /// STRUCT TYPES ///
@@ -992,24 +943,25 @@ Local::Ptr Wrapper::allocateStruct(const std::string &typeName, const std::strin
     return parent->addLocal(Local::create(shared_from_this(), ref->getPtrTo(), alloca));
 }
 
-Local::Ptr Wrapper::getElementPtr(const Local::Ptr &parent, const size_t index, const std::string &name) {
-    if (parent->getTy()->kind() != Entity::PTR)
+Val::Ptr Wrapper::getElementPtr(const Entity::Ptr &parent, const size_t index, const std::string &name) {
+    const auto &[raw, type] = process(parent, false);
+
+    if (!type->isPtrTy())
         complain("Wrapper::getElementPtr(): Type of parent is not a pointer.");
 
-    PtrTy *ptr = dynamic_cast<PtrTy *>(parent->getTy().get());
+    PtrTy::Ptr ptr = std::static_pointer_cast<PtrTy>(type);
 
     if (ptr->getPointeeTy()->kind() != Entity::STRUCT)
         complain("Wrapper::getElementPtr(): Type of parent is not a pointer to a struct.");
 
-    Struct &ref = *dynamic_cast<Struct *>(ptr->getPointeeTy().get());
-    Value *gep = builder->CreateGEP(*ref, parent->getValuePtr(),
-        {**getInt(32, 0), **getInt(32, index)}, name);
-    return this->parent->addLocal(Local::create(shared_from_this(), ref[index]->getPtrTo(), gep));
+    Struct::Ptr ref = std::static_pointer_cast<Struct>(ptr->getPointeeTy());
+    Value *gep = builder->CreateGEP(**ref, raw, {**getInt(32, 0), **getInt(32, index)}, name);
+    return createValue((*ref)[index]->getPtrTo(), gep);
 }
 
-Local::Ptr Wrapper::getElementVal(const Local::Ptr &parent, const size_t index, const std::string &name) {
-    Local::Ptr ptr = getElementPtr(parent, index, name+"_ptr");
-    return ptr->loadValue(true, name);
+Val::Ptr Wrapper::getElementVal(const Entity::Ptr &parent, const size_t index, const std::string &name) {
+    Val::Ptr ptr = getElementPtr(parent, index, name+"_ptr");
+    return ptr->dereference(name);
 }
 
 /// BUILDER ///
@@ -1181,18 +1133,18 @@ Val::Ptr Wrapper::typeCast(const Entity::Ptr &value, const Ty::Ptr &to, const st
 
 }
 
-Local::Ptr Wrapper::getArrayElement(const Entity::Ptr &array, size_t index, const std::string &name) {
+Val::Ptr Wrapper::getArrayElement(const Entity::Ptr &array, size_t index, const std::string &name) {
     auto [raw, ty] = process(array, false);
     Value *ptr = builder->CreateGEP(ty->getTy(), raw,{**getInt(32, index)}, name);
-    return createLocal(ty, ptr);
+    return createValue(ty, ptr);
 }
 
-Local::Ptr Wrapper::getArrayElement(const Entity::Ptr &array, const Entity::Ptr &index, const std::string &name) {
+Val::Ptr Wrapper::getArrayElement(const Entity::Ptr &array, const Entity::Ptr &index, const std::string &name) {
     auto [raw, ty] = process(array, false);
     Value *index_value = process(index, false).first;
 
     Value *ptr = builder->CreateGEP(ty->getTy(), raw, {index_value}, name);
-    return createLocal(ty, ptr);
+    return createValue(ty, ptr);
 }
 
 Val::Ptr Wrapper::compareToNull(const Entity::Ptr &pointer, const std::string &name) {
@@ -1207,20 +1159,20 @@ Val::Ptr Wrapper::compareToNull(const Entity::Ptr &pointer, const std::string &n
 
 
 // TODO: refactor this for Entity
-Local::Ptr Wrapper::unaryOp(Op op, const Local::Ptr &expr, const std::string &name) {
-    Local::Ptr load = expr->loadValue();
+Val::Ptr Wrapper::unaryOp(Op op, const Local::Ptr &expr, const std::string &name) {
+    Val::Ptr load = expr->dereference();
     Ty::Ptr loadTy = load->getTy();
 
     switch (op) {
         case NEG: {
             if (loadTy->isFloatTy())
-                return createLocal(loadTy, builder->CreateFNeg(load->getValuePtr(), name));
+                return createValue(loadTy, builder->CreateFNeg(load->getValuePtr(), name));
 
             // the result of a negation is always a signed integer type
             auto cast = std::static_pointer_cast<IntTy>(loadTy);
-            return createLocal(cast ? cast->getSignedTy() : loadTy, builder->CreateNeg(load->getValuePtr(), name));
+            return createValue(cast ? cast->getSignedTy() : loadTy, builder->CreateNeg(load->getValuePtr(), name));
         }
-        case NOT: return createLocal(loadTy, builder->CreateNot(load->getValuePtr(), name));
+        case NOT: return createValue(loadTy, builder->CreateNot(load->getValuePtr(), name));
         default:  return complain("Wrapper::unaryOp(): Operation not implemented.");
     }
 }
@@ -1300,11 +1252,18 @@ std::pair<Value *, Ty::Ptr> process(const Entity::Ptr &entity, bool load) {
             return { convert->getValuePtr(), convert->getTy() };
         }
         case Entity::LOCAL: {
-            auto convert = load ? std::static_pointer_cast<Local>(entity)->loadValue() : std::static_pointer_cast<Local>(entity);
-            return { convert->getValuePtr(), convert->getTy() };
+            Value *value;
+            auto convert = std::static_pointer_cast<Local>(entity);
+            if (load) value = convert->dereference()->getValuePtr();
+            else      value = convert->getPtr();
+            return { value, convert->getTy() };
+        }
+        case Entity::ARG: {
+            auto convert = std::static_pointer_cast<Arg>(entity);
+            return { convert->getPtr(), convert->getTy() };
         }
         default:
-            complain("Wrapper::process(): Entity is not a value or local.");
+            complain("wyvern::process(): Entity is not a value, local or argument.");
             return { nullptr, nullptr };
     }
 }
