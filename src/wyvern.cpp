@@ -1215,7 +1215,10 @@ Ty::Ptr Wrapper::addTy(const Ty::Ptr &ty) {
 }
 
 Func::Ptr Wrapper::getFunc(const std::string &name) {
-    return (functions.contains(name) ? functions[name] : nullptr);
+    if (!functions.contains(name))
+        return complain("Wrapper::getFunc(): Function @"+name+"() does not exist.");
+
+    return functions[name];
 }
 
 void Wrapper::setParent(Func::Ptr func) { parent = std::move(func); }
