@@ -425,10 +425,19 @@ public:
 
     constexpr llvm::Argument *getPtr() const { return ptr; }
     constexpr void setPtr(llvm::Argument *ptr) { this->ptr = ptr; }
+    constexpr void setWrapper(const std::shared_ptr<Wrapper> &wrapper) { this->wrapper = wrapper; }
 
     constexpr const Ty::Ptr &getTy() const { return type; }
-
     constexpr const std::string &getName() { return name; }
+
+    /**
+     * @brief Dereference the value of the argument.
+     *
+     * @param isImmediate see explanation at Local::dereference()
+     * @param name Name of the dereferenced value
+     * @return The dereferenced value
+     */
+    Val::Ptr dereference(bool isImmediate = true, const std::string &name = "") const;
 
     constexpr Kind kind() const override { return ARG; }
 
@@ -750,7 +759,7 @@ public:
      * @brief Create a value.
      *
      * @param type Type of the value
-     * @param value Value of the variable
+     * @param value Immediate value
      * @return Wrapped value
      */
     Val::Ptr createValue(const Ty::Ptr &type, llvm::Value *value = nullptr);
@@ -1018,9 +1027,10 @@ public:
      * @brief Get the pointer to a function by its name.
      * 
      * @param name Name of the function
+     * @param warn Throw an error if the function isn't found (false -> just returns nullptr)
      * @return Func::Ptr - Pointer to the found function.
      */
-    Func::Ptr getFunc(const std::string &name);
+    Func::Ptr getFunc(const std::string &name, bool warn = true);
 
     /**
      * @brief Set the current parent

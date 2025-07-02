@@ -371,6 +371,15 @@ Arg::Ptr Arg::create(const Ty::Ptr &type, const std::string &name) {
     return std::make_shared<Arg>(type, name);
 }
 
+Val::Ptr Arg::dereference(bool isImmediate, const std::string &name) const {
+    if (!type->isPtrTy())
+        complain("wyvern::Arg::dereference(): Argument isn't a pointer.");
+
+    Ty::Ptr loadTy = std::static_pointer_cast<PtrTy>(type)->getPointeeTy();
+    LoadInst *load = wrapper->getBuilder()->CreateLoad(loadTy->getTy(), ptr, name);
+    return Val::create(wrapper, loadTy, load, isImmediate);
+}
+
 /// FUNC ///
 
 Func::Func() {
@@ -387,6 +396,7 @@ Func::Func(Wrapper::Ptr wrapper, Ty::Ptr type, const std::string &name, Arg::Vec
     std::vector<std::string> paramNames;
     std::vector<Type *> paramTypes;
     for (const auto &arg : this->parameters) {
+        arg->setWrapper(this->wrapper);
         paramNames.push_back(arg->getName());
         paramTypes.push_back(arg->getTy()->getTy());
     }
@@ -1214,9 +1224,9 @@ Ty::Ptr Wrapper::addTy(const Ty::Ptr &ty) {
     return types.back();
 }
 
-Func::Ptr Wrapper::getFunc(const std::string &name) {
+Func::Ptr Wrapper::getFunc(const std::string &name, bool warn) {
     if (!functions.contains(name))
-        return complain("Wrapper::getFunc(): Function @"+name+"() does not exist.");
+        return warn ? complain("Wrapper::getFunc(): Function @"+name+"() does not exist.") : nullptr;
 
     return functions[name];
 }
